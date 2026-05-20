@@ -35,7 +35,7 @@ type PrayerComposerSheetProps = {
   visible: boolean;
   defaultVisibility: 'public' | 'group';
   onClose: () => void;
-  onCreate: (draft: PrayerDraft) => void;
+  onCreate: (draft: PrayerDraft) => void | Promise<void>;
 };
 
 const floatingPanelShadow = Platform.select({
@@ -496,6 +496,7 @@ export function PrayerComposerSheet({
   const [dragOverNote, setDragOverNote] = useState(false);
   const [error, setError] = useState('');
   const [notePinSeed, setNotePinSeed] = useState(() => Math.floor(Math.random() * 1000));
+  const [isSubmitting, setIsSubmitting] = useState(false);
   const [expandedSituationCategories, setExpandedSituationCategories] = useState<string[]>([
     situationCategories[0],
   ]);
@@ -630,8 +631,13 @@ export function PrayerComposerSheet({
     setDragOverNote(false);
   }
 
-  function submit() {
+  async function submit() {
+    if (isSubmitting) {
+      return;
+    }
+
     try {
+      setIsSubmitting(true);
       const draft = createPrayerDraft({
         title: title.trim(),
         body: body.trim(),
@@ -641,7 +647,7 @@ export function PrayerComposerSheet({
         paperColor: noteColor,
         pinSeed: notePinSeed,
       });
-      onCreate(draft);
+      await onCreate(draft);
       setMood(defaultMood);
       setTitle('');
       setBody('');
@@ -652,6 +658,8 @@ export function PrayerComposerSheet({
       onClose();
     } catch (submitError) {
       setError(submitError instanceof Error ? submitError.message : 'Unable to post prayer.');
+    } finally {
+      setIsSubmitting(false);
     }
   }
 
@@ -853,7 +861,13 @@ export function PrayerComposerSheet({
               <ActionButton icon="link" label="Copy link" />
               <ActionButton icon="share" label="Share" />
               <ActionButton icon="draw" label="Draw" />
-              <ActionButton icon="save" label="Save" onPress={submit} disabled={!canPost} primary />
+              <ActionButton
+                icon="save"
+                label={isSubmitting ? 'Saving' : 'Save'}
+                onPress={submit}
+                disabled={!canPost || isSubmitting}
+                primary
+              />
             </View>
           </ScrollView>
         </View>

@@ -1,5 +1,4 @@
-import React, { useMemo, useRef, useState } from 'react';
-import { useRouter } from 'expo-router';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import {
   Animated,
   Image,
@@ -48,6 +47,10 @@ import {
   publicPrayerCards,
   type PrayerCard,
 } from '@/lib/praybor/sample-data';
+import {
+  createPersistedPrayerCard,
+  fetchPersistedPrayerCards,
+} from '@/lib/praybor/prayer-posts';
 import { getPostItPinImage, getPostItPinImageForKey } from '@/components/praybor/postItPins';
 
 type PrayerBoardScreenProps = {
@@ -113,7 +116,6 @@ const webDragSurfaceStyle =
 
 export function PrayerBoardScreen({ onBack, scope }: PrayerBoardScreenProps) {
   const colors = Colors.light;
-  const router = useRouter();
   const { width } = useWindowDimensions();
   const viewportWidth = width > 0 ? width : 390;
   const [composerVisible, setComposerVisible] = useState(false);
@@ -121,34 +123,37 @@ export function PrayerBoardScreen({ onBack, scope }: PrayerBoardScreenProps) {
   const [radiusKm, setRadiusKm] = useState(MIN_RADIUS_KM);
   const [showOnboarding, setShowOnboarding] = useState(false);
   const [reactions, setReactions] = useState<PrayerReaction[]>(initialReactions);
-  const [localCards, setLocalCards] = useState<PrayerCard[]>([]);
+  const [persistedCards, setPersistedCards] = useState<PrayerCard[]>([]);
   const baseCards = scope === 'public' ? publicPrayerCards : groupPrayerCards;
   const usePostItPager = scope === 'public';
   const columns = usePostItPager ? 1 : viewportWidth >= 360 ? 2 : 1;
 
-  const cards = useMemo(() => [...localCards, ...baseCards], [baseCards, localCards]);
+  const cards = useMemo(() => [...persistedCards, ...baseCards], [baseCards, persistedCards]);
   const subtitle =
     scope === 'public'
       ? `${radiusKm} km - ${cards.length} prayers`
       : 'Private group - 3 prayers';
 
-  function createLocalCard(draft: PrayerDraft) {
-    setLocalCards((current) => [
-      {
-        id: `local-${Date.now()}`,
-        title: draft.title,
-        body: draft.body,
-        mood: draft.mood,
-        visibility: draft.visibility,
-        identity: draft.identity,
-        authorLabel: draft.identity === 'anonymous' ? 'A neighbor' : 'You',
-        neighborhood: draft.visibility === 'public' ? 'Midtown' : undefined,
-        groupName: draft.visibility === 'group' ? 'Friday House Church' : undefined,
-        postedAgo: 'now',
-        paperColor: draft.paperColor,
-        pinSeed: draft.pinSeed,
-      },
-      ...current,
+  useEffect(() => {
+    let isMounted = true;
+
+    fetchPersistedPrayerCards(scope).then((nextCards) => {
+      if (isMounted) {
+        setPersistedCards(nextCards);
+      }
+    });
+
+    return () => {
+      isMounted = false;
+    };
+  }, [scope]);
+
+  async function createPrayerCard(draft: PrayerDraft) {
+    const createdCard = await createPersistedPrayerCard(draft);
+
+    setPersistedCards((current) => [
+      createdCard,
+      ...current.filter((card) => card.id !== createdCard.id),
     ]);
   }
 
@@ -162,24 +167,17 @@ export function PrayerBoardScreen({ onBack, scope }: PrayerBoardScreenProps) {
     );
   }
 
-  function handleBack() {
-    if (onBack) {
-      onBack();
-      return;
-    }
-
-    if (router.canGoBack()) {
-      router.back();
-    }
-  }
-
   return (
     <SafeAreaView style={[styles.safeArea, { backgroundColor: colors.background }]}>
       <ScrollView contentContainerStyle={styles.scrollContent}>
         <View style={styles.header}>
-          <Pressable accessibilityRole="button" accessibilityLabel="Back" onPress={handleBack} style={styles.headerIcon}>
-            <UtilityIcon type="back" size={23} />
-          </Pressable>
+          {onBack ? (
+            <Pressable accessibilityRole="button" accessibilityLabel="Back" onPress={onBack} style={styles.headerIcon}>
+              <UtilityIcon type="back" size={23} />
+            </Pressable>
+          ) : (
+            <View style={styles.headerIcon} />
+          )}
           <View style={styles.headerTitleBlock}>
             <BlessiLogo />
             <Text style={[styles.subtitle, { color: colors.textSecondary }]}>{subtitle}</Text>
@@ -240,7 +238,7 @@ export function PrayerBoardScreen({ onBack, scope }: PrayerBoardScreenProps) {
         visible={composerVisible}
         defaultVisibility={scope}
         onClose={() => setComposerVisible(false)}
-        onCreate={createLocalCard}
+        onCreate={createPrayerCard}
       />
 
       <BoardSettingsModal
