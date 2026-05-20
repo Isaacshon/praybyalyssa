@@ -5,6 +5,7 @@ node_modules/
 
 # Expo
 .expo/
+.expo-build-check/
 dist/
 web-build/
 expo-env.d.ts
@@ -25,6 +26,16 @@ expo-env.d.ts
 npm-debug.*
 yarn-debug.*
 yarn-error.*
+expo-preview.log
+.edge-debug-profile/
+.playwright-mcp/
+praybor-*.png
+postit-*.png
+Logo/
+
+# generated post-it background trials
+assets/images/praybor/post-it/board/
+assets/images/praybor/post-it/group/
 
 # macOS
 .DS_Store

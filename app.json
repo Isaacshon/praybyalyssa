@@ -1,11 +1,11 @@
 {
   "expo": {
-    "name": "pray",
-    "slug": "pray",
+    "name": "PrayBor",
+    "slug": "praybor",
     "version": "1.0.0",
     "orientation": "portrait",
     "icon": "./assets/images/icon.png",
-    "scheme": "pray",
+    "scheme": "praybor",
     "userInterfaceStyle": "automatic",
     "ios": {
       "icon": "./assets/expo.icon"
@@ -29,14 +29,19 @@
         "expo-splash-screen",
         {
           "backgroundColor": "#208AEF",
+          "ios": {
+            "backgroundColor": "#F5F8F0"
+          },
           "android": {
             "image": "./assets/images/splash-icon.png",
-            "imageWidth": 76
+            "imageWidth": 76,
+            "backgroundColor": "#F5F8F0"
           }
         }
       ]
     ],
     "experiments": {
+      "baseUrl": "/praybyalyssa",
       "typedRoutes": true,
       "reactCompiler": true
     }
