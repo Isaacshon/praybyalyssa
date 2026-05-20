@@ -6,11 +6,11 @@ export default function AppTabs() {
 
   return (
     <NativeTabs
-      backgroundColor={menuBarColor}
-      iconColor={{ default: '#FFFFFF', selected: '#FFFFFF' }}
-      indicatorColor="rgba(255, 255, 255, 0.18)"
-      labelStyle={{ default: { color: '#FFFFFF' }, selected: { color: '#FFFFFF' } }}
-      tintColor="#FFFFFF">
+      backgroundColor="#FFFFFF"
+      iconColor={{ default: '#6C6B72', selected: menuBarColor }}
+      indicatorColor="rgba(255, 102, 40, 0.16)"
+      labelStyle={{ default: { color: '#6C6B72' }, selected: { color: menuBarColor, fontWeight: '800' } }}
+      tintColor={menuBarColor}>
       <NativeTabs.Trigger name="index">
         <NativeTabs.Trigger.Label>Board</NativeTabs.Trigger.Label>
         <NativeTabs.Trigger.Icon

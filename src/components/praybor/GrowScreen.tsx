@@ -3,6 +3,7 @@ import { Platform, Pressable, ScrollView, StyleSheet, Text, View, useColorScheme
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { AnimatedAsset } from '@/components/praybor/AnimatedAsset';
+import { BlessiLogo } from '@/components/praybor/BlessiLogo';
 import { ReactionIcon } from '@/components/praybor/PrayborArtwork';
 import { Colors } from '@/constants/theme';
 import {
@@ -99,6 +100,7 @@ export function GrowScreen() {
     <SafeAreaView style={[styles.safeArea, { backgroundColor: colors.background }]}>
       <ScrollView contentContainerStyle={styles.content}>
         <View style={styles.header}>
+          <BlessiLogo imageStyle={styles.logoImage} />
           <Text style={[styles.title, { color: colors.text }]}>
             God is already at work.
           </Text>
@@ -166,9 +168,15 @@ const styles = StyleSheet.create({
     paddingBottom: 132,
   },
   header: {
+    alignItems: 'center',
     gap: 10,
   },
+  logoImage: {
+    width: 124,
+    height: 38,
+  },
   title: {
+    width: '100%',
     fontSize: 32,
     lineHeight: 40,
     fontWeight: '900',

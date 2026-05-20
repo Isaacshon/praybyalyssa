@@ -23,9 +23,9 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { AnimatedAsset } from '@/components/praybor/AnimatedAsset';
+import { BlessiLogo } from '@/components/praybor/BlessiLogo';
 import { OnboardingModal } from '@/components/praybor/OnboardingModal';
 import { PrayerComposerSheet } from '@/components/praybor/PrayerComposerSheet';
-import { TapeScrollText } from '@/components/praybor/TapeScrollText';
 import {
   getPostItLayerEdgeColor,
   getPostItFoldShade,
@@ -127,7 +127,6 @@ export function PrayerBoardScreen({ onBack, scope }: PrayerBoardScreenProps) {
   const columns = usePostItPager ? 1 : viewportWidth >= 360 ? 2 : 1;
 
   const cards = useMemo(() => [...localCards, ...baseCards], [baseCards, localCards]);
-  const title = scope === 'public' ? 'Neighborhood prayers' : 'Friday House Church';
   const subtitle =
     scope === 'public'
       ? `${radiusKm} km - ${cards.length} prayers`
@@ -182,7 +181,7 @@ export function PrayerBoardScreen({ onBack, scope }: PrayerBoardScreenProps) {
             <UtilityIcon type="back" size={23} />
           </Pressable>
           <View style={styles.headerTitleBlock}>
-            <Text style={[styles.screenTitle, { color: colors.text }]}>{title}</Text>
+            <BlessiLogo />
             <Text style={[styles.subtitle, { color: colors.textSecondary }]}>{subtitle}</Text>
           </View>
           <Pressable
@@ -273,7 +272,6 @@ function PrayerPostItPager({
   const scrollX = useRef(new Animated.Value(0)).current;
   const currentOffsetX = useRef(0);
   const dragStartOffsetX = useRef(0);
-  const [currentPage, setCurrentPage] = useState(0);
   const pageWidth = Math.max(viewportWidth - 36, 284);
   const maxScrollX = Math.max(0, (cards.length - 1) * pageWidth);
 
@@ -285,7 +283,6 @@ function PrayerPostItPager({
 
     currentOffsetX.current = nextOffset;
     scrollX.setValue(nextOffset);
-    setCurrentPage(nextPage);
     scrollViewRef.current?.scrollTo({ x: nextOffset, animated });
   }
 
@@ -314,9 +311,6 @@ function PrayerPostItPager({
 
   function updateCurrentPage(event: NativeSyntheticEvent<NativeScrollEvent>) {
     currentOffsetX.current = event.nativeEvent.contentOffset.x;
-
-    const nextPage = Math.round(currentOffsetX.current / pageWidth);
-    setCurrentPage(Math.max(0, Math.min(cards.length - 1, nextPage)));
   }
 
   return (
@@ -450,48 +444,6 @@ function PrayerPostItPager({
             );
           })}
         </Animated.ScrollView>
-      </View>
-
-      <PrayerDialIndicator current={currentPage} total={cards.length} />
-    </View>
-  );
-}
-
-function PrayerDialIndicator({ current, total }: { current: number; total: number }) {
-  const safeTotal = Math.max(total, 1);
-  const progress = safeTotal <= 1 ? 0 : current / Math.max(1, safeTotal - 1);
-  const rotation = -128 + progress * 256;
-  const tickCount = Math.min(12, Math.max(5, safeTotal));
-
-  return (
-    <View
-      accessible
-      accessibilityRole="progressbar"
-      accessibilityLabel={`Prayer card ${current + 1} of ${safeTotal}`}
-      accessibilityValue={{ min: 1, max: safeTotal, now: current + 1 }}
-      style={styles.postItDialWrap}>
-      <View style={styles.postItDial}>
-        {Array.from({ length: tickCount }).map((_, index) => {
-          const angle = -128 + (tickCount === 1 ? 0 : (index / (tickCount - 1)) * 256);
-          const isActive = index <= Math.round(progress * (tickCount - 1));
-
-          return (
-            <View
-              key={`dial-tick-${index}`}
-              style={[
-                styles.postItDialTick,
-                isActive && styles.postItDialTickActive,
-                {
-                  transform: [{ rotate: `${angle}deg` }, { translateY: -17 }],
-                },
-              ]}
-            />
-          );
-        })}
-        <View style={[styles.postItDialNeedle, { transform: [{ rotate: `${rotation}deg` }] }]}>
-          <View style={styles.postItDialNeedleLine} />
-        </View>
-        <View style={styles.postItDialCenter} />
       </View>
     </View>
   );
@@ -687,6 +639,7 @@ function PostItPrayerCard({
           {
             backgroundColor: paperColor,
             borderColor: getPostItLayerEdgeColor(paperColor, 0.24),
+            minHeight: noteWidth * (1040 / 720),
             width: noteWidth,
           },
         ]}>
@@ -733,11 +686,9 @@ function PostItPrayerCard({
           </Text>
 
           {revealed ? (
-            <TapeScrollText
-              maxHeight={88}
-              text={card.body}
-              textStyle={[styles.postItBody, { color: colors.textSecondary }]}
-            />
+            <Text style={[styles.postItBody, { color: colors.textSecondary }]}>
+              {card.body}
+            </Text>
           ) : (
             <Pressable
               accessibilityRole="button"
@@ -756,11 +707,11 @@ function PostItPrayerCard({
 
           <Pressable
             accessibilityRole="button"
-            accessibilityLabel={`I prayed. ${prayerCount} people prayed for this request.`}
+            accessibilityLabel={`I prayed for you. ${prayerCount} people prayed for this request.`}
             onPress={() => onReact('prayer')}
             style={styles.postItPrayedButton}>
             <AnimatedAsset assetKey="reaction_prayer" size={24} />
-            <Text style={[styles.postItPrayedText, { color: colors.text }]}>I prayed</Text>
+            <Text style={[styles.postItPrayedText, { color: colors.text }]}>I prayed for you</Text>
             <Text style={[styles.postItPrayedCount, { color: colors.text }]}>{prayerCount}</Text>
           </Pressable>
         </View>
@@ -840,12 +791,12 @@ function PrayerCardView({
       ) : null}
       <Pressable
         accessibilityRole="button"
-        accessibilityLabel={`I prayed. ${prayerCount} people prayed for this request.`}
+        accessibilityLabel={`I prayed for you. ${prayerCount} people prayed for this request.`}
         onPress={() => onReact('prayer')}
         style={[styles.prayedButton, compact && styles.prayedButtonCompact, { backgroundColor: colors.softBlue }]}>
         <AnimatedAsset assetKey="reaction_prayer" size={compact ? 17 : 24} />
         <Text style={[styles.prayedButtonText, compact && styles.prayedButtonTextCompact, { color: colors.text }]}>
-          I prayed
+          I prayed for you
         </Text>
         <Text style={[styles.prayedButtonCount, compact && styles.prayedButtonCountCompact, { color: colors.text }]}>
           {prayerCount}
@@ -910,6 +861,7 @@ const styles = StyleSheet.create({
     paddingBottom: Platform.select({ web: 172, default: 104 }),
   },
   header: {
+    position: 'relative',
     minHeight: 58,
     marginBottom: 12,
     flexDirection: 'row',
@@ -924,16 +876,16 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   headerTitleBlock: {
-    flex: 1,
+    position: 'absolute',
+    left: 70,
+    right: 70,
+    top: 0,
+    bottom: 0,
     alignItems: 'center',
-  },
-  screenTitle: {
-    fontSize: 18,
-    lineHeight: 23,
-    fontWeight: '900',
+    justifyContent: 'center',
   },
   subtitle: {
-    marginTop: 2,
+    marginTop: -1,
     fontSize: 12,
     lineHeight: 16,
     fontWeight: '800',
@@ -947,12 +899,12 @@ const styles = StyleSheet.create({
     width: '100%',
   },
   postItPage: {
-    paddingTop: 22,
-    paddingBottom: 28,
+    paddingTop: 10,
+    paddingBottom: 18,
     alignItems: 'center',
   },
   postItAnimatedShell: {
-    paddingTop: 22,
+    paddingTop: 10,
     paddingHorizontal: 4,
     alignItems: 'center',
   },
@@ -1005,8 +957,7 @@ const styles = StyleSheet.create({
     transform: [{ rotate: '6deg' }],
   },
   postItNote: {
-    aspectRatio: 720 / 1040,
-    marginTop: 34,
+    marginTop: 22,
     borderRadius: 8,
     borderWidth: 1,
     overflow: 'visible',
@@ -1014,11 +965,10 @@ const styles = StyleSheet.create({
     ...postItLayerShadow,
   },
   postItContentLayer: {
-    position: 'absolute',
-    top: '18%',
-    right: '10.5%',
-    bottom: '11%',
-    left: '12.5%',
+    paddingTop: 66,
+    paddingRight: 36,
+    paddingBottom: 62,
+    paddingLeft: 42,
     zIndex: 2,
   },
   postItPaperGrain: {
@@ -1241,57 +1191,6 @@ const styles = StyleSheet.create({
     lineHeight: 24,
     fontSize: 12,
     fontWeight: '900',
-  },
-  postItDialWrap: {
-    marginTop: 8,
-    minHeight: 38,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  postItDial: {
-    width: 58,
-    height: 32,
-    borderRadius: 18,
-    backgroundColor: 'rgba(255, 255, 255, 0.78)',
-    borderWidth: 1,
-    borderColor: 'rgba(255, 138, 91, 0.22)',
-    alignItems: 'center',
-    justifyContent: 'center',
-    overflow: 'hidden',
-  },
-  postItDialTick: {
-    position: 'absolute',
-    width: 2,
-    height: 6,
-    borderRadius: 1,
-    backgroundColor: 'rgba(10, 6, 0, 0.14)',
-  },
-  postItDialTickActive: {
-    height: 8,
-    backgroundColor: '#FF8A5B',
-  },
-  postItDialNeedle: {
-    position: 'absolute',
-    width: 40,
-    height: 40,
-    alignItems: 'center',
-    justifyContent: 'flex-start',
-  },
-  postItDialNeedleLine: {
-    width: 3,
-    height: 16,
-    borderRadius: 2,
-    backgroundColor: '#0A0600',
-  },
-  postItDialCenter: {
-    position: 'absolute',
-    bottom: 8,
-    width: 8,
-    height: 8,
-    borderRadius: 4,
-    backgroundColor: '#0A0600',
-    borderWidth: 2,
-    borderColor: '#FFFFFF',
   },
   boardGrid: {
     flexDirection: 'row',

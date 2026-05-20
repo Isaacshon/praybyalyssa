@@ -15,8 +15,8 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { AnimatedAsset } from '@/components/praybor/AnimatedAsset';
+import { BlessiLogo } from '@/components/praybor/BlessiLogo';
 import { PrayerComposerSheet } from '@/components/praybor/PrayerComposerSheet';
-import { TapeScrollText } from '@/components/praybor/TapeScrollText';
 import { getPostItPinImage, getPostItPinImageForKey } from '@/components/praybor/postItPins';
 import {
   getPostItFoldShade,
@@ -240,6 +240,9 @@ function GroupListScreen({
   return (
     <SafeAreaView style={styles.safeArea}>
       <ScrollView contentContainerStyle={styles.listContent} showsVerticalScrollIndicator={false}>
+        <View style={styles.listLogoHeader}>
+          <BlessiLogo imageStyle={styles.listLogoImage} />
+        </View>
         <View style={styles.quickActionStack}>
           <Pressable
             accessibilityRole="button"
@@ -454,20 +457,26 @@ function CreateGroupModal({
       <SafeAreaView style={styles.createFlowSafe}>
         <View style={styles.createTopBar}>
           {step === 'setup' ? (
-            <Pressable accessibilityRole="button" accessibilityLabel="Close group creation" onPress={onClose} style={styles.createCircleButton}>
+            <Pressable
+              accessibilityRole="button"
+              accessibilityLabel="Close group creation"
+              onPress={onClose}
+              style={[styles.createCircleButton, styles.createLeftAction]}>
               <UtilityIcon type="close" size={29} color="#FFFFFF" />
             </Pressable>
-          ) : (
-            <View style={styles.createTopSpacer} />
-          )}
-          <Text style={styles.createBrand}>PrayBor</Text>
+          ) : null}
+          <View pointerEvents="none" style={styles.createLogoCenter}>
+            <BlessiLogo imageStyle={styles.createLogoImage} />
+          </View>
           {step === 'setup' ? (
-            <Pressable accessibilityRole="button" accessibilityLabel="Show invitation code" onPress={onNext} style={styles.createConfirmButton}>
+            <Pressable
+              accessibilityRole="button"
+              accessibilityLabel="Show invitation code"
+              onPress={onNext}
+              style={[styles.createConfirmButton, styles.createRightAction]}>
               <UtilityIcon type="check" size={34} color="#FFFFFF" />
             </Pressable>
-          ) : (
-            <View style={styles.createTopSpacer} />
-          )}
+          ) : null}
         </View>
 
         {step === 'setup' ? (
@@ -606,23 +615,24 @@ function GroupDetailScreen({ group, onBack }: { group: PrayerGroup; onBack: () =
           <UtilityIcon type="back" size={25} />
         </Pressable>
         <View style={styles.memberPill}>
-          <MemberStack moods={group.members} size={30} />
-          <UtilityIcon type="chevronDown" size={24} />
+          <BlessiLogo imageStyle={styles.detailLogoImage} />
         </View>
-        <Pressable
-          accessibilityRole="button"
-          accessibilityLabel="Share group invite"
-          onPress={shareGroupInvite}
-          style={styles.detailCircleSmall}>
-          <UtilityIcon type="share" size={24} />
-        </Pressable>
-        <Pressable
-          accessibilityRole="button"
-          accessibilityLabel="Post prayer"
-          onPress={() => setComposerVisible(true)}
-          style={styles.detailCirclePost}>
-          <UtilityIcon type="plus" size={24} color="#FFFFFF" />
-        </Pressable>
+        <View style={styles.detailHeaderActions}>
+          <Pressable
+            accessibilityRole="button"
+            accessibilityLabel="Share group invite"
+            onPress={shareGroupInvite}
+            style={styles.detailCircleSmall}>
+            <UtilityIcon type="share" size={24} />
+          </Pressable>
+          <Pressable
+            accessibilityRole="button"
+            accessibilityLabel="Post prayer"
+            onPress={() => setComposerVisible(true)}
+            style={styles.detailCirclePost}>
+            <UtilityIcon type="plus" size={24} color="#FFFFFF" />
+          </Pressable>
+        </View>
       </View>
 
       <ScrollView contentContainerStyle={styles.detailContent} showsVerticalScrollIndicator={false}>
@@ -744,22 +754,17 @@ function GroupPrayerNote({
         </View>
       </View>
       <Text style={styles.noteTitle}>{post.title}</Text>
-      <TapeScrollText
-        maxHeight={112}
-        style={styles.noteBody}
-        text={post.body}
-        textStyle={styles.noteBodyText}
-      />
+      <Text style={styles.noteBodyText}>{post.body}</Text>
       <View style={styles.noteFooter}>
         <Pressable
           accessibilityRole="button"
-          accessibilityLabel={`I prayed, ${prayerCount} prayer${prayerCount === 1 ? '' : 's'}`}
+          accessibilityLabel={`I prayed for you, ${prayerCount} prayer${prayerCount === 1 ? '' : 's'}`}
           onPress={() => onReact('prayer')}
           style={({ pressed }) => [styles.notePrayedButton, pressed && styles.pressed]}>
           <View style={styles.notePrayedIcon}>
             <AnimatedAsset assetKey="reaction_prayer" size={28} />
           </View>
-          <Text style={styles.notePrayedLabel}>I prayed</Text>
+          <Text style={styles.notePrayedLabel}>I prayed for you</Text>
           <View style={styles.notePrayedCountPill}>
             <Text style={styles.notePrayedCount}>{prayerCount}</Text>
           </View>
@@ -799,8 +804,18 @@ const styles = StyleSheet.create({
   listContent: {
     minHeight: '100%',
     paddingHorizontal: 18,
-    paddingTop: 28,
+    paddingTop: 20,
     paddingBottom: Platform.select({ web: 126, default: 40 }),
+  },
+  listLogoHeader: {
+    minHeight: 54,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginBottom: 12,
+  },
+  listLogoImage: {
+    width: 124,
+    height: 38,
   },
   listHeader: {
     minHeight: 122,
@@ -1017,11 +1032,17 @@ const styles = StyleSheet.create({
     paddingTop: 8,
     flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'space-between',
+    justifyContent: 'center',
+    position: 'relative',
   },
-  createTopSpacer: {
-    width: 58,
-    height: 58,
+  createLogoCenter: {
+    position: 'absolute',
+    left: 0,
+    right: 0,
+    top: 8,
+    bottom: 0,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   createCircleButton: {
     width: 58,
@@ -1032,6 +1053,12 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     ...softShadow,
   },
+  createLeftAction: {
+    position: 'absolute',
+    left: 24,
+    top: 19,
+    zIndex: 2,
+  },
   createConfirmButton: {
     width: 64,
     height: 64,
@@ -1041,11 +1068,15 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     ...softShadow,
   },
-  createBrand: {
-    color: '#FF8A5B',
-    fontSize: 30,
-    lineHeight: 36,
-    fontWeight: '900',
+  createRightAction: {
+    position: 'absolute',
+    right: 24,
+    top: 16,
+    zIndex: 2,
+  },
+  createLogoImage: {
+    width: 124,
+    height: 38,
   },
   createSetupContent: {
     paddingHorizontal: 30,
@@ -1157,6 +1188,12 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
+    position: 'relative',
+  },
+  detailHeaderActions: {
+    marginLeft: 'auto',
+    flexDirection: 'row',
+    alignItems: 'center',
     gap: 10,
   },
   detailCircle: {
@@ -1169,35 +1206,42 @@ const styles = StyleSheet.create({
     ...softShadow,
   },
   detailCircleSmall: {
-    width: 54,
-    height: 54,
-    borderRadius: 27,
+    width: 50,
+    height: 50,
+    borderRadius: 25,
     backgroundColor: '#FFFFFF',
     alignItems: 'center',
     justifyContent: 'center',
     ...softShadow,
   },
   detailCirclePost: {
-    width: 54,
-    height: 54,
-    borderRadius: 27,
+    width: 50,
+    height: 50,
+    borderRadius: 25,
     backgroundColor: '#FF8A5B',
     alignItems: 'center',
     justifyContent: 'center',
     ...softShadow,
   },
   memberPill: {
-    flex: 1,
-    maxWidth: 166,
+    position: 'absolute',
+    left: '50%',
+    top: 18,
+    width: 130,
     minHeight: 58,
+    marginLeft: -65,
     borderRadius: 29,
     paddingHorizontal: 16,
     backgroundColor: '#FFFFFF',
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
-    gap: 8,
+    zIndex: 2,
     ...softShadow,
+  },
+  detailLogoImage: {
+    width: 94,
+    height: 30,
   },
   detailContent: {
     paddingHorizontal: 18,
@@ -1253,7 +1297,7 @@ const styles = StyleSheet.create({
     fontWeight: '900',
   },
   prayerNote: {
-    aspectRatio: 0.89,
+    minHeight: 394,
     marginBottom: 8,
     borderRadius: 8,
     borderWidth: 1,
@@ -1440,15 +1484,13 @@ const styles = StyleSheet.create({
     fontWeight: '900',
     zIndex: 2,
   },
-  noteBody: {
-    marginTop: 10,
-    zIndex: 2,
-  },
   noteBodyText: {
+    marginTop: 10,
     color: colors.textSecondary,
     fontSize: 17,
     lineHeight: 25,
     fontWeight: '800',
+    zIndex: 2,
   },
   noteFooter: {
     marginTop: 22,

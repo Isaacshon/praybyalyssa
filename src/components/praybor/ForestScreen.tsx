@@ -10,6 +10,7 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
+import { BlessiLogo } from '@/components/praybor/BlessiLogo';
 import { ForestTree, ReactionIcon } from '@/components/praybor/PrayborArtwork';
 import { Colors } from '@/constants/theme';
 import { forestCollection, treeSpeciesById } from '@/lib/praybor/sample-data';
@@ -31,7 +32,7 @@ export function ForestScreen() {
     <SafeAreaView style={[styles.safeArea, { backgroundColor: colors.background }]}>
       <ScrollView contentContainerStyle={styles.content}>
         <View style={styles.header}>
-          <Text style={[styles.eyebrow, { color: colors.tint }]}>My Forest</Text>
+          <BlessiLogo imageStyle={styles.logoImage} />
           <Text style={[styles.title, { color: colors.text }]}>Fruit from prayers already carried</Text>
           <Text style={[styles.subtitle, { color: colors.textSecondary }]}>
             Every prayer you post and carry leaves a visible trace in this garden.
@@ -111,13 +112,15 @@ const styles = StyleSheet.create({
     gap: 20,
   },
   header: {
+    alignItems: 'center',
     gap: 8,
   },
-  eyebrow: {
-    fontSize: 14,
-    fontWeight: '900',
+  logoImage: {
+    width: 124,
+    height: 38,
   },
   title: {
+    width: '100%',
     fontSize: 32,
     lineHeight: 39,
     fontWeight: '900',

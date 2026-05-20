@@ -1,6 +1,6 @@
 import { TabList, TabListProps, TabSlot, Tabs, TabTrigger, TabTriggerSlotProps } from 'expo-router/ui';
 import React from 'react';
-import { Pressable, StyleSheet, Text, View } from 'react-native';
+import { Pressable, StyleSheet, View } from 'react-native';
 import Svg, { Circle, G, Path, Rect } from 'react-native-svg';
 
 type TabButtonProps = TabTriggerSlotProps & {
@@ -37,24 +37,23 @@ export default function AppTabs() {
 }
 
 function TabButton({ icon, isFocused, label, ...props }: TabButtonProps) {
-  const tintColor = '#FFFFFF';
+  const tintColor = isFocused ? '#FFFFFF' : '#6C6B72';
 
   return (
     <Pressable
       {...props}
       accessibilityLabel={`${label} tab`}
       style={({ pressed }) => [styles.tabButton, isFocused && styles.tabButtonActive, pressed && styles.pressed]}>
-      <TabIcon name={icon} color={tintColor} />
-      <Text style={[styles.tabLabel, { color: tintColor }]} numberOfLines={1}>
-        {label}
-      </Text>
+      <View style={[styles.iconButton, isFocused && styles.iconButtonActive]}>
+        <TabIcon name={icon} color={tintColor} />
+      </View>
     </Pressable>
   );
 }
 
 function TabIcon({ color, name }: { color: string; name: TabIconName }) {
   return (
-    <Svg width={20} height={20} viewBox="0 0 48 48">
+    <Svg width={23} height={23} viewBox="0 0 48 48">
       <G fill="none" stroke={color} strokeLinecap="round" strokeLinejoin="round" strokeWidth="4">
         {name === 'board' ? (
           <>
@@ -95,15 +94,9 @@ function TabIcon({ color, name }: { color: string; name: TabIconName }) {
 function CustomTabList(props: TabListProps) {
   return (
     <View {...props} style={[styles.tabListContainer, { pointerEvents: 'box-none' }, props.style]}>
-      <View
-        style={[
-          styles.innerContainer,
-          {
-            backgroundColor: menuBarColor,
-            borderColor: 'rgba(255, 255, 255, 0.26)',
-          },
-        ]}>
+      <View style={styles.innerContainer}>
         {props.children}
+        <View pointerEvents="none" style={styles.homeIndicator} />
       </View>
     </View>
   );
@@ -119,37 +112,58 @@ const styles = StyleSheet.create({
     right: 0,
     bottom: 0,
     zIndex: 20,
-    paddingHorizontal: 18,
-    paddingBottom: 14,
+    paddingHorizontal: 0,
+    paddingBottom: 0,
     alignItems: 'center',
   },
   innerContainer: {
     width: '100%',
-    maxWidth: 430,
-    minHeight: 66,
-    borderRadius: 24,
+    maxWidth: '100%',
+    minHeight: 98,
+    borderTopLeftRadius: 30,
+    borderTopRightRadius: 30,
+    borderBottomLeftRadius: 0,
+    borderBottomRightRadius: 0,
     borderWidth: 1,
-    padding: 6,
+    borderColor: 'rgba(255, 255, 255, 0.82)',
+    paddingTop: 14,
+    paddingHorizontal: 28,
+    paddingBottom: 22,
+    backgroundColor: '#FFFFFF',
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    boxShadow: '0 14px 32px rgba(255, 138, 91, 0.20)',
+    boxShadow: '0 18px 36px rgba(255, 102, 40, 0.18)',
   },
   tabButton: {
     flex: 1,
-    minHeight: 54,
-    borderRadius: 18,
+    minHeight: 66,
+    borderRadius: 28,
     alignItems: 'center',
     justifyContent: 'center',
-    gap: 3,
   },
   tabButtonActive: {
-    backgroundColor: 'rgba(255, 255, 255, 0.18)',
+    transform: [{ translateY: -9 }],
   },
-  tabLabel: {
-    fontSize: 11,
-    lineHeight: 14,
-    fontWeight: '800',
+  iconButton: {
+    width: 52,
+    height: 52,
+    borderRadius: 26,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  iconButtonActive: {
+    backgroundColor: menuBarColor,
+    boxShadow: '0 8px 18px rgba(255, 102, 40, 0.30)',
+  },
+  homeIndicator: {
+    position: 'absolute',
+    left: '30%',
+    right: '30%',
+    bottom: 8,
+    height: 5,
+    borderRadius: 3,
+    backgroundColor: '#D4D5DC',
   },
   pressed: {
     opacity: 0.72,
