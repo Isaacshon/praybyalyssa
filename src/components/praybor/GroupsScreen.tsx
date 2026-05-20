@@ -16,6 +16,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { AnimatedAsset } from '@/components/praybor/AnimatedAsset';
 import { PrayerComposerSheet } from '@/components/praybor/PrayerComposerSheet';
+import { TapeScrollText } from '@/components/praybor/TapeScrollText';
 import { getPostItPinImage, getPostItPinImageForKey } from '@/components/praybor/postItPins';
 import {
   getPostItFoldShade,
@@ -23,7 +24,6 @@ import {
   MoodFace,
   PostItCornerFold,
   PrayerCardArt,
-  ReactionIcon,
   UtilityIcon,
 } from '@/components/praybor/PrayborArtwork';
 import { Colors } from '@/constants/theme';
@@ -54,12 +54,6 @@ type CreateGroupStep = 'setup' | 'code';
 type GroupCategory = 'church' | 'friends' | 'family' | 'random' | 'small_group';
 
 const colors = Colors.light;
-const reactionLabels: { type: ReactionType; label: string }[] = [
-  { type: 'prayer', label: 'Prayer' },
-  { type: 'amen', label: 'Amen' },
-  { type: 'comfort', label: 'Comfort' },
-  { type: 'love', label: 'Love' },
-];
 const youthTravelPrayer = buildSituationPrayer(['protection', 'time_pressure']);
 const youthWelcomePrayer = buildSituationPrayer(['church_community', 'relationship_closeness']);
 const morningPeacePrayer = buildSituationPrayer(['anxiety', 'guidance']);
@@ -693,6 +687,7 @@ function GroupPrayerNote({
     typeof post.pinSeed === 'number'
       ? getPostItPinImage(post.pinSeed)
       : getPostItPinImageForKey(post.id);
+  const prayerCount = reactions.filter((item) => item.type === 'prayer').length;
 
   return (
     <View
@@ -749,30 +744,26 @@ function GroupPrayerNote({
         </View>
       </View>
       <Text style={styles.noteTitle}>{post.title}</Text>
-      <Text style={styles.noteBody}>{post.body}</Text>
+      <TapeScrollText
+        maxHeight={112}
+        style={styles.noteBody}
+        text={post.body}
+        textStyle={styles.noteBodyText}
+      />
       <View style={styles.noteFooter}>
-        <View style={styles.noteReactionRow}>
-          {reactionLabels.map((reaction) => {
-            const count = reactions.filter((item) => item.type === reaction.type).length;
-
-            return (
-              <Pressable
-                key={reaction.type}
-                accessibilityRole="button"
-                accessibilityLabel={`${reaction.label} reaction, ${count} selected`}
-                onPress={() => onReact(reaction.type)}
-                style={styles.noteReactionButton}>
-                {reaction.type === 'prayer' || reaction.type === 'love' ? (
-                  <AnimatedAsset assetKey={`reaction_${reaction.type}`} size={20} />
-                ) : (
-                  <ReactionIcon type={reaction.type} size={19} />
-                )}
-                <Text style={styles.noteReactionCount}>{count}</Text>
-              </Pressable>
-            );
-          })}
-        </View>
-        <PrayerCardArt mood={post.mood} size={56} variant={index} />
+        <Pressable
+          accessibilityRole="button"
+          accessibilityLabel={`I prayed, ${prayerCount} prayer${prayerCount === 1 ? '' : 's'}`}
+          onPress={() => onReact('prayer')}
+          style={({ pressed }) => [styles.notePrayedButton, pressed && styles.pressed]}>
+          <View style={styles.notePrayedIcon}>
+            <AnimatedAsset assetKey="reaction_prayer" size={28} />
+          </View>
+          <Text style={styles.notePrayedLabel}>I prayed</Text>
+          <View style={styles.notePrayedCountPill}>
+            <Text style={styles.notePrayedCount}>{prayerCount}</Text>
+          </View>
+        </Pressable>
       </View>
     </View>
   );
@@ -1451,40 +1442,60 @@ const styles = StyleSheet.create({
   },
   noteBody: {
     marginTop: 10,
+    zIndex: 2,
+  },
+  noteBodyText: {
     color: colors.textSecondary,
     fontSize: 17,
     lineHeight: 25,
     fontWeight: '800',
-    zIndex: 2,
   },
   noteFooter: {
     marginTop: 22,
-    flexDirection: 'row',
-    alignItems: 'flex-end',
-    justifyContent: 'space-between',
-    gap: 12,
     zIndex: 2,
   },
-  noteReactionRow: {
-    flex: 1,
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    gap: 7,
-  },
-  noteReactionButton: {
-    minHeight: 36,
-    minWidth: 48,
-    borderRadius: 16,
-    paddingHorizontal: 9,
-    backgroundColor: 'rgba(255,255,255,0.62)',
+  notePrayedButton: {
+    minHeight: 60,
+    width: '100%',
+    borderRadius: 20,
+    borderWidth: 1,
+    borderColor: 'rgba(255, 138, 91, 0.24)',
+    paddingVertical: 12,
+    paddingHorizontal: 14,
+    backgroundColor: 'rgba(255,255,255,0.68)',
     flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'center',
-    gap: 4,
+    justifyContent: 'space-between',
+    gap: 10,
   },
-  noteReactionCount: {
+  notePrayedIcon: {
+    width: 34,
+    height: 34,
+    borderRadius: 17,
+    backgroundColor: 'rgba(255, 138, 91, 0.14)',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  notePrayedLabel: {
+    flex: 1,
     color: colors.text,
-    fontSize: 12,
+    fontSize: 18,
+    lineHeight: 23,
+    fontWeight: '900',
+  },
+  notePrayedCountPill: {
+    minWidth: 38,
+    height: 34,
+    borderRadius: 17,
+    paddingHorizontal: 10,
+    backgroundColor: '#FF8A5B',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  notePrayedCount: {
+    color: '#FFFFFF',
+    fontSize: 15,
+    lineHeight: 19,
     fontWeight: '900',
   },
   inviteCard: {

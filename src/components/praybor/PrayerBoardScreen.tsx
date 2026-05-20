@@ -25,13 +25,12 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { AnimatedAsset } from '@/components/praybor/AnimatedAsset';
 import { OnboardingModal } from '@/components/praybor/OnboardingModal';
 import { PrayerComposerSheet } from '@/components/praybor/PrayerComposerSheet';
+import { TapeScrollText } from '@/components/praybor/TapeScrollText';
 import {
   getPostItLayerEdgeColor,
   getPostItFoldShade,
   MoodFace,
   PostItCornerFold,
-  PrayerCardArt,
-  ReactionIcon,
   UtilityIcon,
 } from '@/components/praybor/PrayborArtwork';
 import { Colors } from '@/constants/theme';
@@ -55,13 +54,6 @@ type PrayerBoardScreenProps = {
   scope: PrayerVisibility;
   onBack?: () => void;
 };
-
-const reactionLabels: { type: ReactionType; label: string }[] = [
-  { type: 'prayer', label: 'Prayer' },
-  { type: 'amen', label: 'Amen' },
-  { type: 'comfort', label: 'Comfort' },
-  { type: 'love', label: 'Love' },
-];
 
 const prayerCardShadow = Platform.select({
   web: { boxShadow: '0 8px 20px rgba(255, 138, 91, 0.12)' },
@@ -236,9 +228,6 @@ export function PrayerBoardScreen({ onBack, scope }: PrayerBoardScreenProps) {
             width: Math.min(viewportWidth, 390),
           },
         ]}>
-        <Pressable accessibilityRole="button" accessibilityLabel="Reorder prayer board" style={styles.shuffleButton}>
-          <UtilityIcon type="shuffle" size={25} />
-        </Pressable>
         <Pressable
           accessibilityRole="button"
           accessibilityLabel="Write a new prayer request"
@@ -280,7 +269,6 @@ function PrayerPostItPager({
   reactions: PrayerReaction[];
   viewportWidth: number;
 }) {
-  const colors = Colors.light;
   const scrollViewRef = useRef<ScrollView | null>(null);
   const scrollX = useRef(new Animated.Value(0)).current;
   const currentOffsetX = useRef(0);
@@ -455,7 +443,6 @@ function PrayerPostItPager({
                     noteWidth={noteWidth}
                     pinImage={pinImage}
                     reactions={cardReactions}
-                    total={cards.length}
                     onReact={(type) => onReact(card.id, type)}
                   />
                 </Animated.View>
@@ -465,19 +452,46 @@ function PrayerPostItPager({
         </Animated.ScrollView>
       </View>
 
-      <View style={styles.postItDots}>
-        {cards.map((card, index) => (
-          <View
-            key={`${card.id}-dot`}
-            style={[
-              styles.postItDot,
-              {
-                backgroundColor: index === currentPage ? colors.text : colors.backgroundSelected,
-                width: index === currentPage ? 22 : 8,
-              },
-            ]}
-          />
-        ))}
+      <PrayerDialIndicator current={currentPage} total={cards.length} />
+    </View>
+  );
+}
+
+function PrayerDialIndicator({ current, total }: { current: number; total: number }) {
+  const safeTotal = Math.max(total, 1);
+  const progress = safeTotal <= 1 ? 0 : current / Math.max(1, safeTotal - 1);
+  const rotation = -128 + progress * 256;
+  const tickCount = Math.min(12, Math.max(5, safeTotal));
+
+  return (
+    <View
+      accessible
+      accessibilityRole="progressbar"
+      accessibilityLabel={`Prayer card ${current + 1} of ${safeTotal}`}
+      accessibilityValue={{ min: 1, max: safeTotal, now: current + 1 }}
+      style={styles.postItDialWrap}>
+      <View style={styles.postItDial}>
+        {Array.from({ length: tickCount }).map((_, index) => {
+          const angle = -128 + (tickCount === 1 ? 0 : (index / (tickCount - 1)) * 256);
+          const isActive = index <= Math.round(progress * (tickCount - 1));
+
+          return (
+            <View
+              key={`dial-tick-${index}`}
+              style={[
+                styles.postItDialTick,
+                isActive && styles.postItDialTickActive,
+                {
+                  transform: [{ rotate: `${angle}deg` }, { translateY: -17 }],
+                },
+              ]}
+            />
+          );
+        })}
+        <View style={[styles.postItDialNeedle, { transform: [{ rotate: `${rotation}deg` }] }]}>
+          <View style={styles.postItDialNeedleLine} />
+        </View>
+        <View style={styles.postItDialCenter} />
       </View>
     </View>
   );
@@ -635,7 +649,6 @@ function PostItPrayerCard({
   onReact,
   pinImage,
   reactions,
-  total,
 }: {
   card: PrayerCard;
   index: number;
@@ -644,11 +657,11 @@ function PostItPrayerCard({
   onReact: (type: ReactionType) => void;
   pinImage: ImageSourcePropType;
   reactions: PrayerReaction[];
-  total: number;
 }) {
   const colors = Colors.light;
   const mood = MOODS.find((option) => option.id === card.mood) ?? MOODS[0];
   const [revealed, setRevealed] = useState(!card.isSensitive);
+  const prayerCount = reactions.filter((item) => item.type === 'prayer').length;
   const paperColor = card.paperColor ?? largePostItBackgrounds[index % largePostItBackgrounds.length];
   const foldShade = getPostItFoldShade(paperColor);
   const foldSide = index % 2 === 0 ? 'right' : 'left';
@@ -713,9 +726,6 @@ function PostItPrayerCard({
                 <Text style={[styles.postItMeta, { color: colors.textSecondary }]}>{card.postedAgo}</Text>
               </View>
             </View>
-            <Text style={[styles.postItCount, { color: colors.textSecondary }]}>
-              {index + 1}/{total}
-            </Text>
           </View>
 
           <Text style={[styles.postItTitle, { color: colors.text }]} numberOfLines={2}>
@@ -723,9 +733,11 @@ function PostItPrayerCard({
           </Text>
 
           {revealed ? (
-            <Text style={[styles.postItBody, { color: colors.textSecondary }]} numberOfLines={3}>
-              {card.body}
-            </Text>
+            <TapeScrollText
+              maxHeight={88}
+              text={card.body}
+              textStyle={[styles.postItBody, { color: colors.textSecondary }]}
+            />
           ) : (
             <Pressable
               accessibilityRole="button"
@@ -738,35 +750,19 @@ function PostItPrayerCard({
             </Pressable>
           )}
 
-          <View style={styles.postItArtRow}>
-            <PrayerCardArt mood={card.mood} variant={index} size={52} />
-          </View>
-
           <Text numberOfLines={1} style={[styles.postItAuthor, { color: colors.textSecondary }]}>
             {card.authorLabel} - {card.groupName ?? card.neighborhood}
           </Text>
 
-          <View style={styles.postItReactionRow}>
-            {reactionLabels.map((reaction) => {
-              const count = reactions.filter((item) => item.type === reaction.type).length;
-
-              return (
-                <Pressable
-                  key={reaction.type}
-                  accessibilityRole="button"
-                  accessibilityLabel={`${reaction.label} reaction, ${count} selected`}
-                  onPress={() => onReact(reaction.type)}
-                  style={styles.postItReactionButton}>
-                  {reaction.type === 'prayer' || reaction.type === 'love' ? (
-                    <AnimatedAsset assetKey={`reaction_${reaction.type}`} size={19} />
-                  ) : (
-                    <ReactionIcon type={reaction.type} size={18} />
-                  )}
-                  <Text style={[styles.postItReactionCount, { color: colors.text }]}>{count}</Text>
-                </Pressable>
-              );
-            })}
-          </View>
+          <Pressable
+            accessibilityRole="button"
+            accessibilityLabel={`I prayed. ${prayerCount} people prayed for this request.`}
+            onPress={() => onReact('prayer')}
+            style={styles.postItPrayedButton}>
+            <AnimatedAsset assetKey="reaction_prayer" size={24} />
+            <Text style={[styles.postItPrayedText, { color: colors.text }]}>I prayed</Text>
+            <Text style={[styles.postItPrayedCount, { color: colors.text }]}>{prayerCount}</Text>
+          </Pressable>
         </View>
       </View>
     </View>
@@ -791,6 +787,7 @@ function PrayerCardView({
   const colors = Colors.light;
   const mood = MOODS.find((option) => option.id === card.mood) ?? MOODS[0];
   const [revealed, setRevealed] = useState(!card.isSensitive);
+  const prayerCount = reactions.filter((item) => item.type === 'prayer').length;
 
   return (
     <View
@@ -836,34 +833,24 @@ function PrayerCardView({
           </Text>
         </Pressable>
       )}
-      <View style={styles.cardArtRow}>
-        <PrayerCardArt mood={mood.id} variant={index} size={compact ? 44 : 68} />
-      </View>
       {!compact ? (
         <Text numberOfLines={1} style={[styles.author, { color: colors.textSecondary }]}>
           {card.authorLabel} - {card.groupName ?? card.neighborhood}
         </Text>
       ) : null}
-      <View style={[styles.reactionRow, compact && styles.reactionRowCompact]}>
-        {reactionLabels.map((reaction) => {
-          const count = reactions.filter((item) => item.type === reaction.type).length;
-          return (
-            <Pressable
-              key={reaction.type}
-              accessibilityRole="button"
-              accessibilityLabel={`${reaction.label} reaction, ${count} selected`}
-              onPress={() => onReact(reaction.type)}
-              style={[styles.reactionButton, compact && styles.reactionButtonCompact, { backgroundColor: colors.softBlue }]}>
-              {reaction.type === 'prayer' || reaction.type === 'love' ? (
-                <AnimatedAsset assetKey={`reaction_${reaction.type}`} size={compact ? 14 : 26} />
-              ) : (
-                <ReactionIcon type={reaction.type} size={compact ? 13 : 25} />
-              )}
-              <Text style={[styles.reactionCount, compact && styles.reactionCountCompact, { color: colors.text }]}>{count}</Text>
-            </Pressable>
-          );
-        })}
-      </View>
+      <Pressable
+        accessibilityRole="button"
+        accessibilityLabel={`I prayed. ${prayerCount} people prayed for this request.`}
+        onPress={() => onReact('prayer')}
+        style={[styles.prayedButton, compact && styles.prayedButtonCompact, { backgroundColor: colors.softBlue }]}>
+        <AnimatedAsset assetKey="reaction_prayer" size={compact ? 17 : 24} />
+        <Text style={[styles.prayedButtonText, compact && styles.prayedButtonTextCompact, { color: colors.text }]}>
+          I prayed
+        </Text>
+        <Text style={[styles.prayedButtonCount, compact && styles.prayedButtonCountCompact, { color: colors.text }]}>
+          {prayerCount}
+        </Text>
+      </Pressable>
     </View>
   );
 }
@@ -1196,11 +1183,6 @@ const styles = StyleSheet.create({
     lineHeight: 15,
     fontWeight: '900',
   },
-  postItCount: {
-    fontSize: 12,
-    lineHeight: 15,
-    fontWeight: '900',
-  },
   postItTitle: {
     marginTop: 14,
     fontSize: 23,
@@ -1227,50 +1209,89 @@ const styles = StyleSheet.create({
     lineHeight: 21,
     fontWeight: '900',
   },
-  postItArtRow: {
-    minHeight: 56,
-    marginTop: 6,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
   postItAuthor: {
-    marginTop: 0,
+    marginTop: 14,
     fontSize: 12,
     lineHeight: 15,
     fontWeight: '800',
   },
-  postItReactionRow: {
-    marginTop: 5,
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    gap: 6,
-  },
-  postItReactionButton: {
-    minHeight: 36,
-    minWidth: 53,
-    borderRadius: 14,
-    paddingHorizontal: 8,
-    backgroundColor: 'rgba(255, 255, 255, 0.46)',
+  postItPrayedButton: {
+    minHeight: 44,
+    marginTop: 10,
+    borderRadius: 18,
+    paddingHorizontal: 14,
+    backgroundColor: 'rgba(255, 255, 255, 0.56)',
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
-    gap: 6,
+    gap: 9,
   },
-  postItReactionCount: {
+  postItPrayedText: {
+    fontSize: 14,
+    lineHeight: 18,
+    fontWeight: '900',
+  },
+  postItPrayedCount: {
+    minWidth: 24,
+    minHeight: 24,
+    borderRadius: 12,
+    overflow: 'hidden',
+    backgroundColor: 'rgba(255, 138, 91, 0.26)',
+    textAlign: 'center',
+    lineHeight: 24,
     fontSize: 12,
     fontWeight: '900',
   },
-  postItDots: {
-    marginTop: 6,
-    width: '100%',
-    flexDirection: 'row',
+  postItDialWrap: {
+    marginTop: 8,
+    minHeight: 38,
     alignItems: 'center',
     justifyContent: 'center',
-    gap: 7,
   },
-  postItDot: {
+  postItDial: {
+    width: 58,
+    height: 32,
+    borderRadius: 18,
+    backgroundColor: 'rgba(255, 255, 255, 0.78)',
+    borderWidth: 1,
+    borderColor: 'rgba(255, 138, 91, 0.22)',
+    alignItems: 'center',
+    justifyContent: 'center',
+    overflow: 'hidden',
+  },
+  postItDialTick: {
+    position: 'absolute',
+    width: 2,
+    height: 6,
+    borderRadius: 1,
+    backgroundColor: 'rgba(10, 6, 0, 0.14)',
+  },
+  postItDialTickActive: {
+    height: 8,
+    backgroundColor: '#FF8A5B',
+  },
+  postItDialNeedle: {
+    position: 'absolute',
+    width: 40,
+    height: 40,
+    alignItems: 'center',
+    justifyContent: 'flex-start',
+  },
+  postItDialNeedleLine: {
+    width: 3,
+    height: 16,
+    borderRadius: 2,
+    backgroundColor: '#0A0600',
+  },
+  postItDialCenter: {
+    position: 'absolute',
+    bottom: 8,
+    width: 8,
     height: 8,
     borderRadius: 4,
+    backgroundColor: '#0A0600',
+    borderWidth: 2,
+    borderColor: '#FFFFFF',
   },
   boardGrid: {
     flexDirection: 'row',
@@ -1365,44 +1386,48 @@ const styles = StyleSheet.create({
     fontSize: 10,
     lineHeight: 14,
   },
-  cardArtRow: {
-    marginTop: 2,
-    minHeight: 38,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  reactionRow: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    gap: 8,
+  prayedButton: {
     marginTop: 14,
-  },
-  reactionRowCompact: {
-    gap: 4,
-    marginTop: 5,
-  },
-  reactionButton: {
     minHeight: 44,
-    minWidth: 62,
     borderRadius: 18,
-    paddingHorizontal: 9,
+    paddingHorizontal: 14,
     alignItems: 'center',
     justifyContent: 'center',
     flexDirection: 'row',
-    gap: 5,
+    gap: 8,
   },
-  reactionButtonCompact: {
-    minHeight: 26,
-    minWidth: 30,
+  prayedButtonCompact: {
+    marginTop: 9,
+    minHeight: 32,
     borderRadius: 10,
-    paddingHorizontal: 3,
-    gap: 2,
+    paddingHorizontal: 7,
+    gap: 4,
   },
-  reactionCount: {
+  prayedButtonText: {
     fontSize: 13,
+    lineHeight: 17,
     fontWeight: '900',
   },
-  reactionCountCompact: {
+  prayedButtonTextCompact: {
+    fontSize: 11,
+    lineHeight: 14,
+  },
+  prayedButtonCount: {
+    minWidth: 24,
+    minHeight: 24,
+    borderRadius: 12,
+    overflow: 'hidden',
+    backgroundColor: 'rgba(255, 255, 255, 0.58)',
+    textAlign: 'center',
+    lineHeight: 24,
+    fontSize: 12,
+    fontWeight: '900',
+  },
+  prayedButtonCountCompact: {
+    minWidth: 20,
+    minHeight: 20,
+    borderRadius: 10,
+    lineHeight: 20,
     fontSize: 10,
   },
   signalStrip: {
@@ -1466,13 +1491,6 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     ...composerPillShadow,
-  },
-  shuffleButton: {
-    width: 46,
-    height: 46,
-    borderRadius: 23,
-    alignItems: 'center',
-    justifyContent: 'center',
   },
   settingsOverlay: {
     flex: 1,
