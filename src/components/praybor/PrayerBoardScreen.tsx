@@ -123,6 +123,7 @@ export function PrayerBoardScreen({ onBack, scope }: PrayerBoardScreenProps) {
   const colors = Colors.light;
   const router = useRouter();
   const { width } = useWindowDimensions();
+  const viewportWidth = width > 0 ? width : 390;
   const [composerVisible, setComposerVisible] = useState(false);
   const [settingsVisible, setSettingsVisible] = useState(false);
   const [radiusKm, setRadiusKm] = useState(MIN_RADIUS_KM);
@@ -131,7 +132,7 @@ export function PrayerBoardScreen({ onBack, scope }: PrayerBoardScreenProps) {
   const [localCards, setLocalCards] = useState<PrayerCard[]>([]);
   const baseCards = scope === 'public' ? publicPrayerCards : groupPrayerCards;
   const usePostItPager = scope === 'public';
-  const columns = usePostItPager ? 1 : width >= 360 ? 2 : 1;
+  const columns = usePostItPager ? 1 : viewportWidth >= 360 ? 2 : 1;
 
   const cards = useMemo(() => [...localCards, ...baseCards], [baseCards, localCards]);
   const title = scope === 'public' ? 'Neighborhood prayers' : 'Friday House Church';
@@ -205,7 +206,7 @@ export function PrayerBoardScreen({ onBack, scope }: PrayerBoardScreenProps) {
           <PrayerPostItPager
             cards={cards}
             reactions={reactions}
-            viewportWidth={width}
+            viewportWidth={viewportWidth}
             onReact={reactToPrayer}
           />
         ) : (
@@ -232,7 +233,7 @@ export function PrayerBoardScreen({ onBack, scope }: PrayerBoardScreenProps) {
           styles.composerBar,
           {
             left: 0,
-            width: Math.min(width, 390),
+            width: Math.min(viewportWidth, 390),
           },
         ]}>
         <Pressable accessibilityRole="button" accessibilityLabel="Reorder prayer board" style={styles.shuffleButton}>
