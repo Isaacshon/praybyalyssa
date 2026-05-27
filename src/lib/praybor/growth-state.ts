@@ -5,17 +5,28 @@ import {
   updatePersistedTreeGrowthAsAdmin,
 } from './tree-growth-persistence';
 
-const growthSubscribers = new Set<(tree: ActiveTree | null) => void>();
+export type ActiveTreeSnapshotSource = 'memory' | 'server';
+
+const growthSubscribers = new Set<(
+  tree: ActiveTree | null,
+  source: ActiveTreeSnapshotSource,
+) => void>();
 let currentTree: ActiveTree | null = null;
 let hasRequestedServerTree = false;
+let hasLoadedServerTree = false;
 
 export function getActiveTreeSnapshot() {
   return currentTree;
 }
 
-export function subscribeToActiveTree(listener: (tree: ActiveTree | null) => void) {
+export function subscribeToActiveTree(
+  listener: (
+    tree: ActiveTree | null,
+    source: ActiveTreeSnapshotSource,
+  ) => void,
+) {
   growthSubscribers.add(listener);
-  listener(currentTree);
+  listener(currentTree, hasLoadedServerTree ? 'server' : 'memory');
 
   if (!hasRequestedServerTree) {
     hasRequestedServerTree = true;
@@ -32,8 +43,10 @@ export async function refreshActiveTreeSnapshot() {
 
   if (persistedTree) {
     currentTree = persistedTree;
-    notifyGrowthSubscribers();
   }
+
+  hasLoadedServerTree = true;
+  notifyGrowthSubscribers('server');
 
   return currentTree;
 }
@@ -52,7 +65,7 @@ export function recordTreeGrowthAction(
   }).then((persistedTree) => {
     if (persistedTree) {
       currentTree = persistedTree;
-      notifyGrowthSubscribers();
+      notifyGrowthSubscribers('server');
     }
   });
 
@@ -71,14 +84,14 @@ export async function updateTreeGrowthAsAdmin(growthPoints: number) {
 
   if (persistedTree) {
     currentTree = persistedTree;
-    notifyGrowthSubscribers();
+    notifyGrowthSubscribers('server');
   }
 
   return currentTree;
 }
 
-function notifyGrowthSubscribers() {
+function notifyGrowthSubscribers(source: ActiveTreeSnapshotSource) {
   for (const subscriber of growthSubscribers) {
-    subscriber(currentTree);
+    subscriber(currentTree, source);
   }
 }

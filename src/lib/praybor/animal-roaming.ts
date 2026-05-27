@@ -18,6 +18,7 @@ export type RoamingAnimalMotionProfile = {
   loopDurationMs: number;
   movingWindows: readonly RoamingAnimalMotionWindow[];
 };
+export type RoamingAnimalSourceFacing = 'left' | 'right';
 
 const ROAMING_ANIMAL_BODY_LENGTHS_PER_WALK_GIF_LOOP = 3;
 const ROAMING_ANIMAL_MIN_WALK_DURATION_MS = 1000;
@@ -26,31 +27,30 @@ const ROAMING_ANIMAL_WALK_TRANSITION_DELAY_MS = 0;
 const ROAMING_ANIMAL_TURN_DELAY_MS = 110;
 const ROAMING_ANIMAL_IDLE_TO_WALK_DELAY_MS = 190;
 const ROAMING_ANIMAL_REST_BASE_DELAY_MS = 6400;
+const ROAMING_ANIMAL_MIN_WALKS_BEFORE_REST = 7;
+const ROAMING_ANIMAL_REST_RANDOM_WALK_WINDOW = 5;
 const ROAMING_ANIMAL_INITIAL_STEPS = [0, 4, 8, 2, 6] as const;
 const ROAMING_ANIMAL_INITIAL_DELAYS_MS = [0, 720, 1360, 380, 1040] as const;
-const ROAMING_ANIMAL_REST_SCHEDULES = [
-  { interval: 11, phase: 6 },
-  { interval: 13, phase: 10 },
-  { interval: 17, phase: 3 },
-  { interval: 19, phase: 14 },
-  { interval: 23, phase: 8 },
-] as const;
+const ROAMING_ANIMAL_SOURCE_FACING: Partial<Record<string, RoamingAnimalSourceFacing>> = {
+  dog: 'right',
+};
 const DEFAULT_ROAMING_ANIMAL_MOTION_PROFILE = {
   loopDurationMs: 10030,
   movingWindows: [{ startMs: 0, endMs: 10030 }],
 } as const;
 const ROAMING_ANIMAL_MOTION_PROFILES: Record<string, RoamingAnimalMotionProfile> = {
   baby_rabbit: DEFAULT_ROAMING_ANIMAL_MOTION_PROFILE,
+  dog: {
+    loopDurationMs: 10030,
+    movingWindows: [{ startMs: 1180, endMs: 9750 }],
+  },
   desert_fox: {
     loopDurationMs: 10000,
-    movingWindows: [
-      { startMs: 900, endMs: 3200 },
-      { startMs: 5700, endMs: 8300 },
-    ],
+    movingWindows: [{ startMs: 900, endMs: 8000 }],
   },
   rock_hyrax: {
     loopDurationMs: 6030,
-    movingWindows: [{ startMs: 900, endMs: 5000 }],
+    movingWindows: [{ startMs: 760, endMs: 5660 }],
   },
   lion: {
     loopDurationMs: 6030,
@@ -164,6 +164,26 @@ function getRouteVariant<T>(values: readonly T[], index: number) {
   return values[index % values.length];
 }
 
+function hashRoamingAnimalRestSeed({
+  companionId = '',
+  cycle,
+  index,
+}: {
+  companionId?: string;
+  cycle: number;
+  index: number;
+}) {
+  let hash = 2166136261;
+  const input = `${companionId}:${index}:${cycle}`;
+
+  for (let i = 0; i < input.length; i += 1) {
+    hash ^= input.charCodeAt(i);
+    hash = Math.imul(hash, 16777619);
+  }
+
+  return hash >>> 0;
+}
+
 function getNormalizedMotionElapsedMs({
   elapsedMs,
   loopDurationMs,
@@ -180,6 +200,22 @@ export function getRoamingAnimalInitialStep({ index }: { index: number }) {
 
 export function getRoamingAnimalInitialDelayMs({ index }: { index: number }) {
   return getRouteVariant(ROAMING_ANIMAL_INITIAL_DELAYS_MS, index);
+}
+
+export function getRoamingAnimalNextRestWalkCount({
+  companionId,
+  cycle,
+  index,
+}: {
+  companionId?: string;
+  cycle: number;
+  index: number;
+}) {
+  return (
+    ROAMING_ANIMAL_MIN_WALKS_BEFORE_REST +
+    (hashRoamingAnimalRestSeed({ companionId, cycle, index }) %
+      (ROAMING_ANIMAL_REST_RANDOM_WALK_WINDOW + 1))
+  );
 }
 
 export function getRoamingAnimalMotionProfile({ companionId }: { companionId?: string }) {
@@ -269,7 +305,15 @@ export function getRoamingAnimalMove({
   const deltaX = to.x - from.x;
   const deltaY = to.y - from.y;
   const distance = Math.hypot(deltaX, deltaY);
-  const directionScaleX: RoamingAnimalDirectionScaleX = deltaX >= 0 ? -1 : 1;
+  const sourceFacing = ROAMING_ANIMAL_SOURCE_FACING[companionId ?? ''] ?? 'left';
+  const directionScaleX: RoamingAnimalDirectionScaleX =
+    sourceFacing === 'right'
+      ? deltaX >= 0
+        ? 1
+        : -1
+      : deltaX >= 0
+        ? -1
+        : 1;
   const durationMs = Math.round(
     clamp(
       (distance / getRoamingAnimalWalkSpeedPxPerSecond({ companionId, size })) * 1000,
@@ -297,9 +341,15 @@ export function getRoamingAnimalPose({
 }
 
 export function shouldRoamingAnimalRest({
+  companionId,
+  cycle = 0,
   index,
   step,
+  completedWalksSinceRest = step,
 }: {
+  companionId?: string;
+  completedWalksSinceRest?: number;
+  cycle?: number;
   index: number;
   step: number;
 }) {
@@ -307,9 +357,11 @@ export function shouldRoamingAnimalRest({
     return false;
   }
 
-  const schedule = getRouteVariant(ROAMING_ANIMAL_REST_SCHEDULES, index);
-
-  return step % schedule.interval === schedule.phase;
+  return completedWalksSinceRest >= getRoamingAnimalNextRestWalkCount({
+    companionId,
+    cycle,
+    index,
+  });
 }
 
 export function getRoamingAnimalIdleDelayMs({

@@ -14,6 +14,7 @@ describe('grow map areas', () => {
       'highland',
       'garden',
       'flower-garden',
+      'night-sky',
     ]);
     expect(GROW_MAP_AREA_DEFINITIONS[2]).toMatchObject({
       sceneId: 'highland',
@@ -32,6 +33,12 @@ describe('grow map areas', () => {
       guideImageId: 'flowerGarden',
       title: 'Flower Garden',
       unlocksAtFruitBearingTreeCount: 4,
+    });
+    expect(GROW_MAP_AREA_DEFINITIONS[5]).toMatchObject({
+      sceneId: 'nightSky',
+      guideImageId: 'nightSky',
+      title: 'Night Sky',
+      unlocksAtFruitBearingTreeCount: 5,
     });
   });
 

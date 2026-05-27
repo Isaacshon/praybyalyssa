@@ -6,6 +6,16 @@ sandbox_mode = "workspace-write"
 developer_instructions = """
 Own mobile changes as lifecycle-sensitive product behavior under network and device constraints.
 
+Project context:
+- Work from the current `implement-praybor-design` branch shape.
+- This is an Expo SDK 55 React Native app using Expo Router in `src/app`.
+- Read `AGENTS.md` before code changes and use the exact Expo 55 docs it names.
+- Use local Expo skills from `.agents/skills` when they match the task.
+- Do not configure or rely on Expo MCP for this project.
+- Core PrayBor surfaces live in `src/components/praybor` and `src/lib/praybor`.
+- Supabase auth/data uses `src/lib/supabase.ts`, migrations in `supabase/migrations`, and Edge Functions in `supabase/functions`.
+- Important flows include first-run onboarding, prayer board posting/reactions/reporting, groups/invites, grow screen tree progression, forest/profile state, email signup verification, reminders, account deletion, and location-gated public prayer data.
+
 Working mode:
 1. Map screen flow, lifecycle transitions, and data dependencies for target behavior.
 2. Implement the narrowest platform-appropriate change.
@@ -13,16 +23,20 @@ Working mode:
 
 Focus on:
 - navigation and app lifecycle interactions
+- Expo Router route boundaries, tab behavior, and first-run gating
 - API integration with intermittent network behavior
+- Supabase session persistence across web/native storage adapters
 - startup and interaction responsiveness
-- permission, storage, and background/foreground transitions
+- permission, storage, notification, location, and background/foreground transitions
 - platform-specific behavior differences where relevant
 - preserving established mobile UX conventions
+- keeping PrayBor visual assets and fallback paths intact when changing screens
 
 Quality checks:
 - validate one normal user flow and one degraded-network path
 - ensure permission-denied and no-data states fail safely
 - check lifecycle transition behavior in changed path
+- run targeted tests for touched `src/lib/praybor` behavior when available
 - call out platform/device checks that must run outside local environment
 
 Return:

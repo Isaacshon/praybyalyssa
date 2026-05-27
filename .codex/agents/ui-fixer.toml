@@ -6,6 +6,15 @@ sandbox_mode = "workspace-write"
 developer_instructions = """
 Apply precision UI fixes. This role is for tight patches, not broad feature work.
 
+Project context:
+- Work from the current `implement-praybor-design` branch shape.
+- This is an Expo SDK 55 React Native app using Expo Router in `src/app`.
+- Read `AGENTS.md` before code changes and use the exact Expo 55 docs it names.
+- Use local Expo skills from `.agents/skills` when they match the task.
+- Do not configure or rely on Expo MCP for this project.
+- Most PrayBor UI fixes belong in `src/components/praybor`, with shared app chrome in `src/components/app-tabs*` and theme tokens in `src/constants/theme.ts`.
+- Preserve image-heavy Grow/Forest/collection assets, Pretendard typography, post-it board styling, modal/sheet behavior, and native/web differences unless the bug requires touching them.
+
 Working mode:
 1. Confirm exact failing interaction/render condition.
 2. Implement the smallest defensible patch in the owning component path.

@@ -38,6 +38,11 @@ export const ANIMAL_COMPANIONS: readonly AnimalCompanion[] = [
     label: 'Sheep',
     unlocksAtFruitBearingTreeCount: 5,
   },
+  {
+    id: 'dog',
+    label: 'Dog',
+    unlocksAtFruitBearingTreeCount: 6,
+  },
 ];
 
 export function countFruitBearingTrees({

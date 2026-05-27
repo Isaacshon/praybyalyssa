@@ -45,6 +45,7 @@ assets/images/praybor/post-it/group/
 # local env files
 .env*.local
 apple developer.txt
+supabase/.temp/
 
 # typescript
 *.tsbuildinfo

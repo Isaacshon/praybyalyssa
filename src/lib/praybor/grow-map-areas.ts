@@ -39,6 +39,14 @@ export const GROW_MAP_AREA_DEFINITIONS = [
     subtitle: 'A bright field where answered prayers bloom',
     unlocksAtFruitBearingTreeCount: 4,
   },
+  {
+    id: 'night-sky',
+    sceneId: 'nightSky',
+    guideImageId: 'nightSky',
+    title: 'Night Sky',
+    subtitle: 'A moonlit meadow under sparkling stars',
+    unlocksAtFruitBearingTreeCount: 5,
+  },
 ] as const;
 
 export type GrowMapAreaDefinition = (typeof GROW_MAP_AREA_DEFINITIONS)[number];

@@ -17,8 +17,12 @@ export const ANIMAL_COMPANION_IMAGE_ASSETS: Partial<Record<
     walkingImage: require('../../../Logo/forest asset/동물/아기토끼/사이드뷰.gif'),
     idleImage: require('../../../Logo/forest asset/동물/아기토끼/정면.gif'),
   },
+  dog: {
+    walkingImage: require('../../../Logo/forest asset/동물/강아지/사이드뷰.gif'),
+    idleImage: require('../../../Logo/forest asset/동물/강아지/정면.gif'),
+  },
   desert_fox: {
-    walkingImage: require('../../../Logo/forest asset/동물/사막여우/사이드뷰.gif'),
+    walkingImage: require('../../../assets/images/praybor/animals/desert-fox-side-stable.gif'),
     idleImage: require('../../../Logo/forest asset/동물/사막여우/정면.gif'),
   },
   rock_hyrax: {
@@ -70,6 +74,13 @@ export const GROW_MAP_SCENE_ASSETS = {
     stillLayerImage: require('../../../Logo/forest asset/배경/꽃밭/배경2.png'),
     breezeLayerImage: require('../../../Logo/forest asset/배경/꽃밭/배경3.png'),
   },
+  nightSky: {
+    id: 'nightSky',
+    guideImage: require('../../../Logo/forest asset/배경/밤하늘/프리뷰.png'),
+    backgroundImage: require('../../../Logo/forest asset/배경/밤하늘/1.png'),
+    stillLayerImage: require('../../../Logo/forest asset/배경/밤하늘/2.png'),
+    breezeLayerImage: require('../../../Logo/forest asset/배경/밤하늘/3.png'),
+  },
 } satisfies Record<
   string,
   {
@@ -86,6 +97,7 @@ export const GROW_MAP_GUIDE_IMAGES: Record<string, ImageSourcePropType> = {
   highland: GROW_MAP_SCENE_ASSETS.highland.guideImage,
   garden: GROW_MAP_SCENE_ASSETS.garden.guideImage,
   flowerGarden: GROW_MAP_SCENE_ASSETS.flowerGarden.guideImage,
+  nightSky: GROW_MAP_SCENE_ASSETS.nightSky.guideImage,
 };
 
 export const TREE_STAGE_IMAGES_BY_SPECIES: Record<string, ImageSourcePropType[]> = {

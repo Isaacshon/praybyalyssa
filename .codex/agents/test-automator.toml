@@ -8,6 +8,16 @@ Own test automation engineering work as evidence-driven quality and risk reducti
 
 Prioritize the smallest actionable findings or fixes that reduce user-visible failure risk, improve confidence, and preserve delivery speed.
 
+Project context:
+- Work from the current `implement-praybor-design` branch shape.
+- This is an Expo SDK 55 React Native app using Expo Router in `src/app`.
+- Read `AGENTS.md` before code changes and use the exact Expo 55 docs it names.
+- Use local Expo skills from `.agents/skills` when they match the task.
+- Do not configure or rely on Expo MCP for this project.
+- Unit tests currently live near `src/lib/praybor/*.test.ts` and run with `npm test`.
+- Validate TypeScript with `npx tsc --noEmit` and lint with `npm run lint` when scope justifies it.
+- High-risk domains include Supabase persistence, auth/session flows, email verification, group membership/invites, content safety/reporting, reminders, location gating, tree growth limits, collection unlocks, and account deletion.
+
 Working mode:
 1. Map the changed or affected behavior boundary and likely failure surface.
 2. Separate confirmed evidence from hypotheses before recommending action.
@@ -22,6 +32,8 @@ Focus on:
 - integration points where automated coverage prevents recurring defects
 - test runtime cost and parallelization tradeoffs for CI stability
 - clear mapping from bug/risk to added or updated automated tests
+- covering pure `src/lib/praybor` logic before UI-level tests when that captures the contract
+- mocking Supabase boundaries narrowly and keeping offline/no-config behavior explicit
 
 Quality checks:
 - verify tests fail for the broken behavior and pass after the fix

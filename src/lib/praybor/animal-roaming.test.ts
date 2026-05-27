@@ -7,6 +7,7 @@ import {
   getRoamingAnimalIdleDelayMs,
   getRoamingAnimalMove,
   getRoamingAnimalMotionState,
+  getRoamingAnimalNextRestWalkCount,
   getRoamingAnimalPoint,
   getRoamingAnimalPose,
   getRoamingAnimalTurnDelayMs,
@@ -84,6 +85,23 @@ describe('animal roaming layout', () => {
       getRoamingAnimalMove({
         from: { x: 60, y: 0 },
         to: { x: 120, y: 0 },
+      }).directionScaleX,
+    ).toBe(-1);
+  });
+
+  it('keeps right-facing source sprites pointed toward the travel direction', () => {
+    expect(
+      getRoamingAnimalMove({
+        companionId: 'dog',
+        from: { x: 60, y: 0 },
+        to: { x: 120, y: 0 },
+      }).directionScaleX,
+    ).toBe(1);
+    expect(
+      getRoamingAnimalMove({
+        companionId: 'dog',
+        from: { x: 120, y: 0 },
+        to: { x: 60, y: 0 },
       }).directionScaleX,
     ).toBe(-1);
   });
@@ -170,15 +188,33 @@ describe('animal roaming layout', () => {
     expect(getRoamingAnimalPose({ walking: true })).toBe('walking');
   });
 
-  it('keeps animals walking most of the time and rests only rarely', () => {
-    const restDecisions = Array.from({ length: 16 }, (_, step) =>
-      shouldRoamingAnimalRest({ index: 0, step }),
+  it('rests only after a long walking run with a varied next-rest count', () => {
+    const nextRestCounts = [0, 1, 2, 3, 4].map((index) =>
+      getRoamingAnimalNextRestWalkCount({ companionId: 'desert_fox', cycle: 0, index }),
     );
-    const restCount = restDecisions.filter(Boolean).length;
+    const firstRestCount = nextRestCounts[0];
 
-    expect(restDecisions[0]).toBe(false);
-    expect(restCount).toBeGreaterThan(0);
-    expect(restCount).toBeLessThan(4);
+    expect(Math.min(...nextRestCounts)).toBeGreaterThanOrEqual(7);
+    expect(Math.max(...nextRestCounts)).toBeLessThanOrEqual(12);
+    expect(new Set(nextRestCounts).size).toBeGreaterThan(1);
+    expect(
+      shouldRoamingAnimalRest({
+        companionId: 'desert_fox',
+        completedWalksSinceRest: firstRestCount - 1,
+        cycle: 0,
+        index: 0,
+        step: firstRestCount,
+      }),
+    ).toBe(false);
+    expect(
+      shouldRoamingAnimalRest({
+        companionId: 'desert_fox',
+        completedWalksSinceRest: firstRestCount,
+        cycle: 0,
+        index: 0,
+        step: firstRestCount + 1,
+      }),
+    ).toBe(true);
   });
 
   it('starts animals on different route phases and wake timings', () => {
@@ -188,14 +224,16 @@ describe('animal roaming layout', () => {
     expect(new Set(indexes.map((index) => getRoamingAnimalInitialDelayMs({ index }))).size).toBeGreaterThan(1);
   });
 
-  it('staggers rare front-facing rests so animals do not rest together', () => {
-    for (let step = 1; step <= 48; step += 1) {
-      const restingIndexes = [0, 1, 2, 3, 4].filter((index) =>
-        shouldRoamingAnimalRest({ index, step }),
-      );
+  it('varies the next front-facing rest count by animal slot and cycle', () => {
+    const firstCycleCounts = [0, 1, 2, 3, 4].map((index) =>
+      getRoamingAnimalNextRestWalkCount({ companionId: 'dog', cycle: 0, index }),
+    );
+    const nextCycleCounts = [0, 1, 2, 3, 4].map((index) =>
+      getRoamingAnimalNextRestWalkCount({ companionId: 'dog', cycle: 1, index }),
+    );
 
-      expect(restingIndexes.length).toBeLessThanOrEqual(1);
-    }
+    expect(new Set(firstCycleCounts).size).toBeGreaterThan(1);
+    expect(nextCycleCounts).not.toEqual(firstCycleCounts);
   });
 
   it('uses a brief transition between walks and a longer delay for rare front-facing rests', () => {
@@ -204,20 +242,42 @@ describe('animal roaming layout', () => {
     expect(getRoamingAnimalIdleDelayMs({ index: 1, resting: true, step: 9 })).toBeGreaterThanOrEqual(6400);
   });
 
-  it('pauses translation during side-view sitting portions and moves only during walking frames', () => {
-    expect(getRoamingAnimalMotionState({ companionId: 'desert_fox', elapsedMs: 200 }).moving).toBe(false);
-    expect(getRoamingAnimalMotionState({ companionId: 'desert_fox', elapsedMs: 1200 }).moving).toBe(true);
-    expect(getRoamingAnimalMotionState({ companionId: 'desert_fox', elapsedMs: 4100 }).moving).toBe(false);
-    expect(getRoamingAnimalMotionState({ companionId: 'desert_fox', elapsedMs: 6500 }).moving).toBe(true);
-    expect(getRoamingAnimalMotionState({ companionId: 'desert_fox', elapsedMs: 8500 }).moving).toBe(false);
-    expect(getRoamingAnimalMotionState({ companionId: 'rock_hyrax', elapsedMs: 500 }).moving).toBe(false);
-    expect(getRoamingAnimalMotionState({ companionId: 'rock_hyrax', elapsedMs: 1600 }).moving).toBe(true);
-    expect(getRoamingAnimalMotionState({ companionId: 'rock_hyrax', elapsedMs: 5400 }).moving).toBe(false);
-    expect(getRoamingAnimalMotionState({ companionId: 'lion', elapsedMs: 5400 }).moving).toBe(true);
+  it('keeps translation continuous through face-forward frames that are still walking', () => {
+    const samplesByCompanionId = {
+      baby_rabbit: [0, 2500, 6500, 10020],
+      dog: [1400, 2500, 6500, 9400],
+      desert_fox: [900, 1200, 4100, 6500, 7900],
+      rock_hyrax: [900, 1600, 5400],
+      lion: [0, 1600, 5400, 6020],
+      sheep: [0, 1600, 5400, 6020],
+    };
+
+    for (const [companionId, samples] of Object.entries(samplesByCompanionId)) {
+      for (const elapsedMs of samples) {
+        const motionState = getRoamingAnimalMotionState({ companionId, elapsedMs });
+
+        expect(motionState.moving).toBe(true);
+        expect(motionState.waitMs).toBe(0);
+        expect(motionState.remainingMovingMs).toBeGreaterThan(0);
+      }
+    }
   });
 
-  it('keeps every current animal on the shared footstep-gated roaming model', () => {
-    for (const companionId of ['baby_rabbit', 'desert_fox', 'rock_hyrax', 'lion', 'sheep']) {
+  it('pauses translation only for true non-walking portions inside side-view GIFs', () => {
+    expect(getRoamingAnimalMotionState({ companionId: 'dog', elapsedMs: 200 }).moving).toBe(false);
+    expect(getRoamingAnimalMotionState({ companionId: 'dog', elapsedMs: 1100 }).moving).toBe(false);
+    expect(getRoamingAnimalMotionState({ companionId: 'dog', elapsedMs: 9900 }).moving).toBe(false);
+    expect(getRoamingAnimalMotionState({ companionId: 'desert_fox', elapsedMs: 200 }).moving).toBe(false);
+    expect(getRoamingAnimalMotionState({ companionId: 'desert_fox', elapsedMs: 820 }).moving).toBe(false);
+    expect(getRoamingAnimalMotionState({ companionId: 'desert_fox', elapsedMs: 8100 }).moving).toBe(false);
+    expect(getRoamingAnimalMotionState({ companionId: 'desert_fox', elapsedMs: 8500 }).moving).toBe(false);
+    expect(getRoamingAnimalMotionState({ companionId: 'desert_fox', elapsedMs: 9900 }).moving).toBe(false);
+    expect(getRoamingAnimalMotionState({ companionId: 'rock_hyrax', elapsedMs: 500 }).moving).toBe(false);
+    expect(getRoamingAnimalMotionState({ companionId: 'rock_hyrax', elapsedMs: 5800 }).moving).toBe(false);
+  });
+
+  it('keeps every current animal on the shared side-view roaming model', () => {
+    for (const companionId of ['baby_rabbit', 'dog', 'desert_fox', 'rock_hyrax', 'lion', 'sheep']) {
       const speed = getRoamingAnimalWalkSpeedPxPerSecond({ companionId, size: 84 });
       const earlyState = getRoamingAnimalMotionState({ companionId, elapsedMs: 1600 });
 

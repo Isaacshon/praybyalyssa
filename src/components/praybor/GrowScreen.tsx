@@ -43,13 +43,18 @@ import {
   getRoamingAnimalIdleDelayMs,
   getRoamingAnimalMove,
   getRoamingAnimalMotionState,
+  getRoamingAnimalNextRestWalkCount,
   getRoamingAnimalPoint,
   getRoamingAnimalPose,
   getRoamingAnimalTurnDelayMs,
-  shouldRoamingAnimalRest,
   type RoamingAnimalDirectionScaleX,
+  type RoamingAnimalPose,
 } from '@/lib/praybor/animal-roaming';
-import { getAnimalCompanionImageScale } from '@/lib/praybor/animal-presentation';
+import {
+  getAnimalCompanionImageFrameScaleX,
+  getAnimalCompanionImageScale,
+  getAnimalCompanionPoseSwitchDelayMs,
+} from '@/lib/praybor/animal-presentation';
 import {
   COMPLETE_GROWTH_POINTS,
   TREE_SPECIES,
@@ -116,7 +121,24 @@ const stageProgressCardShadow = Platform.select({
 const SHEET_CLOSED_TRANSLATE = 306;
 const SHEET_OPEN_DISTANCE = SHEET_CLOSED_TRANSLATE;
 const BREEZE_INPUT_RANGE = [0, 0.28, 0.5, 0.74, 1];
+const TWINKLE_INPUT_RANGE = [0, 0.16, 0.36, 0.58, 0.78, 1];
+const COLLECTION_DEX_GRID_HORIZONTAL_PADDING = 12;
+const COLLECTION_DEX_GRID_GAP = 8;
 const USE_NATIVE_ANIMATION_DRIVER = Platform.OS !== 'web';
+const NIGHT_SKY_SPARKLES = [
+  { id: 'north-west', x: 11, y: 6, size: 3, phase: 0 },
+  { id: 'upper-left', x: 22, y: 13, size: 2, phase: 1 },
+  { id: 'moon-left', x: 36, y: 8, size: 2, phase: 2 },
+  { id: 'moon-right', x: 57, y: 9, size: 3, phase: 0 },
+  { id: 'far-right', x: 83, y: 5, size: 2, phase: 1 },
+  { id: 'cloud-right', x: 76, y: 17, size: 4, phase: 2 },
+  { id: 'mid-left', x: 17, y: 24, size: 2, phase: 2 },
+  { id: 'center-high', x: 48, y: 23, size: 3, phase: 1 },
+  { id: 'mid-right', x: 68, y: 28, size: 2, phase: 0 },
+  { id: 'low-left', x: 28, y: 36, size: 2, phase: 1 },
+  { id: 'low-center', x: 54, y: 34, size: 2, phase: 2 },
+  { id: 'low-right', x: 88, y: 32, size: 3, phase: 0 },
+] as const;
 type CollectionKind = 'tree' | 'animal';
 type SheetActionKind = 'forest' | 'map' | 'collection';
 type GrowMapSceneAsset = (typeof GROW_MAP_SCENE_ASSETS)[keyof typeof GROW_MAP_SCENE_ASSETS];
@@ -181,38 +203,50 @@ const STAGE_PROGRESS_RANGES: Record<TreeGrowthStage, { start: number; end: numbe
   fruiting_tree: { start: 6, end: COMPLETE_GROWTH_POINTS },
   completed: { start: COMPLETE_GROWTH_POINTS, end: COMPLETE_GROWTH_POINTS },
 };
-const GROWTH_VERSES: Record<TreeGrowthStage, { theme: string; excerpt: string; reference: string }> = {
-  seed: {
+type GrowthVerse = { theme: string; excerpt: string; reference: string };
+
+const TREE_GROWTH_VERSES: readonly GrowthVerse[] = [
+  {
     theme: "God's work",
     excerpt: 'He who began a good work in you will bring it to completion.',
     reference: 'Philippians 1:6 ESV',
   },
-  sprout: {
+  {
     theme: "God's help",
     excerpt: 'My help comes from the LORD.',
     reference: 'Psalm 121:2 ESV',
   },
-  small_plant: {
+  {
     theme: "God's faithfulness",
     excerpt: 'Great is your faithfulness.',
     reference: 'Lamentations 3:23 ESV',
   },
-  young_tree: {
+  {
     theme: "God's love",
     excerpt: 'The love of God in Christ Jesus our Lord.',
     reference: 'Romans 8:39 ESV',
   },
-  fruiting_tree: {
+  {
     theme: 'Fruit of prayer',
     excerpt: 'Whoever abides in me bears much fruit.',
     reference: 'John 15:5 ESV',
   },
-  completed: {
-    theme: 'Fruit of prayer',
-    excerpt: 'Whoever abides in me bears much fruit.',
-    reference: 'John 15:5 ESV',
+  {
+    theme: 'Shelter and rest',
+    excerpt: 'The LORD is my shepherd; I shall not want.',
+    reference: 'Psalm 23:1 ESV',
   },
-};
+  {
+    theme: 'Peace of God',
+    excerpt: 'The peace of God will guard your hearts.',
+    reference: 'Philippians 4:7 ESV',
+  },
+  {
+    theme: 'New mercy',
+    excerpt: 'His mercies never come to an end.',
+    reference: 'Lamentations 3:22 ESV',
+  },
+];
 
 function clamp(value: number, min: number, max: number) {
   return Math.min(max, Math.max(min, value));
@@ -220,6 +254,20 @@ function clamp(value: number, min: number, max: number) {
 
 function areStringArraysEqual(left: readonly string[], right: readonly string[]) {
   return left.length === right.length && left.every((value, index) => value === right[index]);
+}
+
+function getStableTreeVerseKey(tree: ActiveTree | null, speciesId: string) {
+  return tree ? `tree:${tree.id}` : `species:${speciesId}`;
+}
+
+function getStableTreeVerse(key: string): GrowthVerse {
+  let hash = 0;
+
+  for (let index = 0; index < key.length; index += 1) {
+    hash = (hash * 31 + key.charCodeAt(index)) >>> 0;
+  }
+
+  return TREE_GROWTH_VERSES[hash % TREE_GROWTH_VERSES.length];
 }
 
 function getWheelScrollIndex(
@@ -364,10 +412,17 @@ function RoamingAnimal({
   const translateX = useRef(new Animated.Value(0)).current;
   const translateY = useRef(new Animated.Value(0)).current;
   const directionScale = useRef(new Animated.Value(1)).current;
-  const walkingOpacity = useRef(new Animated.Value(0)).current;
-  const idleOpacity = useRef(new Animated.Value(1)).current;
-  const [pose, setPose] = useState<'idle' | 'walking'>('idle');
+  const walkingOpacity = useRef(new Animated.Value(reduceMotion ? 0 : 1)).current;
+  const idleOpacity = useRef(new Animated.Value(reduceMotion ? 1 : 0)).current;
+  const poseRef = useRef<RoamingAnimalPose>(reduceMotion ? 'idle' : 'walking');
+  const poseStartedAtMsRef = useRef(Date.now());
+  const poseTransitionTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const [pose, setPose] = useState<RoamingAnimalPose>(reduceMotion ? 'idle' : 'walking');
   const walkingImageScale = getAnimalCompanionImageScale({
+    companionId: companion.id,
+    pose: 'walking',
+  });
+  const walkingImageFrameScaleX = getAnimalCompanionImageFrameScaleX({
     companionId: companion.id,
     pose: 'walking',
   });
@@ -375,6 +430,65 @@ function RoamingAnimal({
     companionId: companion.id,
     pose: 'idle',
   });
+  const idleImageFrameScaleX = getAnimalCompanionImageFrameScaleX({
+    companionId: companion.id,
+    pose: 'idle',
+  });
+
+  const clearScheduledPoseChange = useCallback(() => {
+    if (poseTransitionTimeoutRef.current) {
+      clearTimeout(poseTransitionTimeoutRef.current);
+      poseTransitionTimeoutRef.current = null;
+    }
+  }, []);
+
+  const commitPoseChange = useCallback(
+    (nextPose: RoamingAnimalPose) => {
+      clearScheduledPoseChange();
+
+      if (poseRef.current === nextPose) {
+        return;
+      }
+
+      poseRef.current = nextPose;
+      poseStartedAtMsRef.current = Date.now();
+      setPose(nextPose);
+    },
+    [clearScheduledPoseChange],
+  );
+
+  const requestPoseChange = useCallback(
+    (nextPose: RoamingAnimalPose, onReady?: () => void) => {
+      clearScheduledPoseChange();
+
+      if (poseRef.current === nextPose) {
+        onReady?.();
+        return;
+      }
+
+      const delayMs = getAnimalCompanionPoseSwitchDelayMs({
+        companionId: companion.id,
+        currentPose: poseRef.current,
+        elapsedMs: Date.now() - poseStartedAtMsRef.current,
+        reduceMotion,
+      });
+      const applyPoseChange = () => {
+        poseTransitionTimeoutRef.current = null;
+        poseRef.current = nextPose;
+        poseStartedAtMsRef.current = Date.now();
+        setPose(nextPose);
+        onReady?.();
+      };
+
+      if (delayMs <= 0) {
+        applyPoseChange();
+        return;
+      }
+
+      poseTransitionTimeoutRef.current = setTimeout(applyPoseChange, delayMs);
+    },
+    [clearScheduledPoseChange, companion.id, reduceMotion],
+  );
 
   useEffect(() => {
     const transitionDurationMs = reduceMotion ? 0 : 180;
@@ -403,17 +517,25 @@ function RoamingAnimal({
     let step = getRoamingAnimalInitialStep({ index });
     let previousDirectionScaleX: RoamingAnimalDirectionScaleX | null = null;
     let walkingCycleStartedAtMs = Date.now();
+    let restCycle = 0;
+    let completedWalksSinceRest = 0;
+    let nextRestWalkCount = getRoamingAnimalNextRestWalkCount({
+      companionId: companion.id,
+      cycle: restCycle,
+      index,
+    });
     const firstPoint = getRoamingAnimalPoint({ index, sceneWidth, size, step });
 
     translateX.setValue(firstPoint.x);
     translateY.setValue(firstPoint.y);
 
     if (reduceMotion) {
-      setPose('idle');
+      commitPoseChange('idle');
       directionScale.setValue(index % 2 === 0 ? 1 : -1);
 
       return () => {
         mounted = false;
+        clearScheduledPoseChange();
       };
     }
 
@@ -442,7 +564,7 @@ function RoamingAnimal({
         size,
         to: toPoint,
       });
-      const resting = shouldRoamingAnimalRest({ index, step });
+      const resting = step > 0 && completedWalksSinceRest >= nextRestWalkCount;
       const idleDelay = getRoamingAnimalIdleDelayMs({ index, resting, step });
       const firstWalkDelay = getRoamingAnimalInitialDelayMs({ index });
       let segmentProgress = 0;
@@ -450,6 +572,7 @@ function RoamingAnimal({
       clearRoamTimeout();
       const finishMove = () => {
         step += 1;
+        completedWalksSinceRest += 1;
         scheduleNextMove();
       };
       const animateMove = () => {
@@ -463,7 +586,7 @@ function RoamingAnimal({
         });
 
         if (!motionState.moving) {
-          setPose(getRoamingAnimalPose({ walking: false }));
+          requestPoseChange(getRoamingAnimalPose({ walking: true }));
           motionTimeout = setTimeout(
             animateMove,
             Math.max(50, motionState.waitMs),
@@ -483,7 +606,7 @@ function RoamingAnimal({
           return;
         }
 
-        setPose(getRoamingAnimalPose({ walking: true }));
+        requestPoseChange(getRoamingAnimalPose({ walking: true }));
         const chunkDurationMs = Math.max(
           16,
           Math.min(remainingMoveDurationMs, motionState.remainingMovingMs),
@@ -533,32 +656,52 @@ function RoamingAnimal({
           walkingCycleStartedAtMs = Date.now();
         }
 
-        directionScale.setValue(move.directionScaleX);
-        const turnDelay = getRoamingAnimalTurnDelayMs({
-          previousDirectionScaleX,
-          nextDirectionScaleX: move.directionScaleX,
-          wasIdle,
-        });
-        previousDirectionScaleX = move.directionScaleX;
-
-        if (turnDelay === 0) {
-          animateMove();
-
-          return;
-        }
-
-        turnTimeout = setTimeout(() => {
+        requestPoseChange(getRoamingAnimalPose({ walking: true }), () => {
           if (!mounted) {
             return;
           }
 
-          animateMove();
-        }, turnDelay);
+          directionScale.setValue(move.directionScaleX);
+          const turnDelay = getRoamingAnimalTurnDelayMs({
+            previousDirectionScaleX,
+            nextDirectionScaleX: move.directionScaleX,
+            wasIdle,
+          });
+          previousDirectionScaleX = move.directionScaleX;
+
+          if (turnDelay === 0) {
+            animateMove();
+
+            return;
+          }
+
+          turnTimeout = setTimeout(() => {
+            if (!mounted) {
+              return;
+            }
+
+            animateMove();
+          }, turnDelay);
+        });
       };
 
       if (resting) {
-        setPose(getRoamingAnimalPose({ walking: false }));
-        idleTimeout = setTimeout(() => startWalking({ wasIdle: true }), idleDelay);
+        requestPoseChange(getRoamingAnimalPose({ walking: false }), () => {
+          if (!mounted) {
+            return;
+          }
+
+          idleTimeout = setTimeout(() => {
+            completedWalksSinceRest = 0;
+            restCycle += 1;
+            nextRestWalkCount = getRoamingAnimalNextRestWalkCount({
+              companionId: companion.id,
+              cycle: restCycle,
+              index,
+            });
+            startWalking({ wasIdle: true });
+          }, idleDelay);
+        });
 
         return;
       }
@@ -575,10 +718,23 @@ function RoamingAnimal({
     return () => {
       mounted = false;
       clearRoamTimeout();
+      clearScheduledPoseChange();
       translateX.stopAnimation();
       translateY.stopAnimation();
     };
-  }, [companion.id, directionScale, index, reduceMotion, sceneWidth, size, translateX, translateY]);
+  }, [
+    clearScheduledPoseChange,
+    commitPoseChange,
+    companion.id,
+    directionScale,
+    index,
+    reduceMotion,
+    requestPoseChange,
+    sceneWidth,
+    size,
+    translateX,
+    translateY,
+  ]);
 
   return (
     <Animated.View
@@ -611,6 +767,10 @@ function RoamingAnimal({
             cachePolicy="memory-disk"
             style={[
               styles.roamingAnimalImage,
+              walkingImageFrameScaleX !== 1 && {
+                alignSelf: 'center',
+                width: `${walkingImageFrameScaleX * 100}%`,
+              },
               walkingImageScale !== 1 && { transform: [{ scale: walkingImageScale }] },
             ]}
             accessibilityLabel={companion.label}
@@ -628,6 +788,10 @@ function RoamingAnimal({
             cachePolicy="memory-disk"
             style={[
               styles.roamingAnimalImage,
+              idleImageFrameScaleX !== 1 && {
+                alignSelf: 'center',
+                width: `${idleImageFrameScaleX * 100}%`,
+              },
               idleImageScale !== 1 && { transform: [{ scale: idleImageScale }] },
             ]}
             accessibilityLabel={companion.label}
@@ -728,6 +892,9 @@ export function GrowScreen() {
   const [tree, setTree] = useState<ActiveTree | null>(
     growPreviewTree ?? getActiveTreeSnapshot,
   );
+  const [treeSnapshotReady, setTreeSnapshotReady] = useState(
+    () => Boolean(growPreviewTree ?? getActiveTreeSnapshot()),
+  );
   const [sceneLayers, setSceneLayers] = useState<GrowMapSceneAsset>(DEFAULT_FOREST_SCENE_ASSET);
   const [showNextScene, setShowNextScene] = useState(false);
   const [sheetOpen, setSheetOpen] = useState(false);
@@ -747,6 +914,9 @@ export function GrowScreen() {
   const [selectedRoamingCompanionIds, setSelectedRoamingCompanionIds] = useState<string[]>([]);
   const shouldReduceMotion = Platform.OS !== 'web' && reduceMotionEnabled;
   const forestBreeze = useRef(new Animated.Value(0)).current;
+  const starTwinkleOne = useRef(new Animated.Value(0)).current;
+  const starTwinkleTwo = useRef(new Animated.Value(0)).current;
+  const starTwinkleThree = useRef(new Animated.Value(0)).current;
   const treeCanopyLeftBreeze = useRef(new Animated.Value(0)).current;
   const treeCanopyCenterBreeze = useRef(new Animated.Value(0)).current;
   const treeCanopyRightBreeze = useRef(new Animated.Value(0)).current;
@@ -764,7 +934,7 @@ export function GrowScreen() {
   const growthDay = tree ? Math.min(COMPLETE_GROWTH_POINTS, tree.growthPoints) : 0;
   const stageLabel = getStageLabel(stage);
   const stageProgressPercent = getStageProgressPercent(growthDay, stage);
-  const growthVerse = GROWTH_VERSES[stage];
+  const growthVerse = getStableTreeVerse(getStableTreeVerseKey(tree, speciesId));
   const displayedCollectionKind = activeCollection ?? lastCollectionKind;
   const activeCollectionTitle = displayedCollectionKind === 'tree' ? 'Tree Book' : 'Animal Book';
   const treeSpeciesLabel = getSpeciesLabel(speciesId);
@@ -779,7 +949,9 @@ export function GrowScreen() {
   const wheelCardGap = 14;
   const wheelSnapInterval = wheelCardWidth + wheelCardGap;
   const wheelSidePadding = Math.max(18, Math.round((width - wheelCardWidth) / 2));
-  const collectionDexCardWidth = Math.floor((width - 40) / 3);
+  const collectionDexGridWidth =
+    width - COLLECTION_DEX_GRID_HORIZONTAL_PADDING * 2 - COLLECTION_DEX_GRID_GAP * 2;
+  const collectionDexCardWidth = Math.floor(collectionDexGridWidth / 3);
   const treeDetailStageCellWidth = Math.max(
     50,
     Math.min(62, Math.floor((Math.min(width, 430) - 72) / 5)),
@@ -985,6 +1157,7 @@ export function GrowScreen() {
   );
   const hasSceneStillLayer = Boolean(resolvedSceneStillLayer);
   const hasSceneBreezeLayer = Boolean(resolvedSceneBreezeLayer);
+  const isNightSkyScene = sceneLayers.id === 'nightSky';
   const matureTreeArtSize = Math.min(372, Math.max(260, width * 0.92));
   const treeArtSize = Math.round(matureTreeArtSize * TREE_STAGE_SIZE_FACTORS[stage]);
   const treeLeafLayerHeight = Math.round(treeArtSize * TREE_LEAF_LAYER_RATIOS[stage]);
@@ -1081,6 +1254,50 @@ export function GrowScreen() {
     inputRange: BREEZE_INPUT_RANGE,
     outputRange: [0.9996, 1.0011, 1, 0.9995, 0.9996],
   });
+  const nightSkyTwinkleStyles = [
+    {
+      opacity: starTwinkleOne.interpolate({
+        inputRange: TWINKLE_INPUT_RANGE,
+        outputRange: [0.35, 1, 0.48, 0.86, 0.42, 0.35],
+      }),
+      transform: [
+        {
+          scale: starTwinkleOne.interpolate({
+            inputRange: TWINKLE_INPUT_RANGE,
+            outputRange: [0.76, 1.45, 0.9, 1.22, 0.82, 0.76],
+          }),
+        },
+      ],
+    },
+    {
+      opacity: starTwinkleTwo.interpolate({
+        inputRange: TWINKLE_INPUT_RANGE,
+        outputRange: [0.52, 0.74, 0.32, 1, 0.58, 0.52],
+      }),
+      transform: [
+        {
+          scale: starTwinkleTwo.interpolate({
+            inputRange: TWINKLE_INPUT_RANGE,
+            outputRange: [0.92, 1.14, 0.7, 1.5, 1, 0.92],
+          }),
+        },
+      ],
+    },
+    {
+      opacity: starTwinkleThree.interpolate({
+        inputRange: TWINKLE_INPUT_RANGE,
+        outputRange: [0.42, 0.66, 1, 0.5, 0.9, 0.42],
+      }),
+      transform: [
+        {
+          scale: starTwinkleThree.interpolate({
+            inputRange: TWINKLE_INPUT_RANGE,
+            outputRange: [0.84, 1.06, 1.58, 0.88, 1.28, 0.84],
+          }),
+        },
+      ],
+    },
+  ];
 
   function openCollection(kind: CollectionKind) {
     setLastCollectionKind(kind);
@@ -1261,11 +1478,18 @@ export function GrowScreen() {
   useEffect(() => {
     if (growPreviewTree) {
       setTree(growPreviewTree);
+      setTreeSnapshotReady(true);
 
       return undefined;
     }
 
-    return subscribeToActiveTree(setTree);
+    return subscribeToActiveTree((nextTree, source) => {
+      setTree(nextTree);
+
+      if (nextTree || source === 'server') {
+        setTreeSnapshotReady(true);
+      }
+    });
   }, [growPreviewTree]);
 
   useEffect(() => {
@@ -1343,6 +1567,9 @@ export function GrowScreen() {
   useEffect(() => {
     if (shouldReduceMotion) {
       forestBreeze.setValue(0.5);
+      starTwinkleOne.setValue(0.58);
+      starTwinkleTwo.setValue(0.36);
+      starTwinkleThree.setValue(0.78);
       treeCanopyLeftBreeze.setValue(0.5);
       treeCanopyCenterBreeze.setValue(0.5);
       treeCanopyRightBreeze.setValue(0.5);
@@ -1350,6 +1577,9 @@ export function GrowScreen() {
     }
 
     forestBreeze.setValue(0);
+    starTwinkleOne.setValue(0);
+    starTwinkleTwo.setValue(0.36);
+    starTwinkleThree.setValue(0.72);
     treeCanopyLeftBreeze.setValue(0);
     treeCanopyCenterBreeze.setValue(0);
     treeCanopyRightBreeze.setValue(0);
@@ -1455,14 +1685,70 @@ export function GrowScreen() {
         }),
       ]),
     );
+    const starTwinkleOneLoop = Animated.loop(
+      Animated.sequence([
+        Animated.timing(starTwinkleOne, {
+          toValue: 1,
+          duration: 2400,
+          easing: Easing.inOut(Easing.sin),
+          useNativeDriver: USE_NATIVE_ANIMATION_DRIVER,
+        }),
+        Animated.timing(starTwinkleOne, {
+          toValue: 0,
+          duration: 2100,
+          easing: Easing.inOut(Easing.sin),
+          useNativeDriver: USE_NATIVE_ANIMATION_DRIVER,
+        }),
+      ]),
+    );
+    const starTwinkleTwoLoop = Animated.loop(
+      Animated.sequence([
+        Animated.delay(520),
+        Animated.timing(starTwinkleTwo, {
+          toValue: 1,
+          duration: 3100,
+          easing: Easing.inOut(Easing.sin),
+          useNativeDriver: USE_NATIVE_ANIMATION_DRIVER,
+        }),
+        Animated.timing(starTwinkleTwo, {
+          toValue: 0,
+          duration: 2600,
+          easing: Easing.inOut(Easing.sin),
+          useNativeDriver: USE_NATIVE_ANIMATION_DRIVER,
+        }),
+      ]),
+    );
+    const starTwinkleThreeLoop = Animated.loop(
+      Animated.sequence([
+        Animated.delay(960),
+        Animated.timing(starTwinkleThree, {
+          toValue: 1,
+          duration: 2700,
+          easing: Easing.inOut(Easing.sin),
+          useNativeDriver: USE_NATIVE_ANIMATION_DRIVER,
+        }),
+        Animated.timing(starTwinkleThree, {
+          toValue: 0,
+          duration: 3300,
+          easing: Easing.inOut(Easing.sin),
+          useNativeDriver: USE_NATIVE_ANIMATION_DRIVER,
+        }),
+      ]),
+    );
 
     forestBreezeLoop.start();
+    starTwinkleOneLoop.start();
+    starTwinkleTwoLoop.start();
+    starTwinkleThreeLoop.start();
     treeCanopyLeftLoop.start();
     treeCanopyCenterLoop.start();
     treeCanopyRightLoop.start();
 
     return () => {
       forestBreezeLoop.stop();
+      starTwinkleOneLoop.stop();
+      starTwinkleTwoLoop.stop();
+      starTwinkleThreeLoop.stop();
       treeCanopyLeftLoop.stop();
       treeCanopyCenterLoop.stop();
       treeCanopyRightLoop.stop();
@@ -1470,6 +1756,9 @@ export function GrowScreen() {
   }, [
     forestBreeze,
     shouldReduceMotion,
+    starTwinkleOne,
+    starTwinkleThree,
+    starTwinkleTwo,
     treeCanopyCenterBreeze,
     treeCanopyLeftBreeze,
     treeCanopyRightBreeze,
@@ -1482,6 +1771,7 @@ export function GrowScreen() {
       : null;
   const selectedTreeSpeciesId = selectedTreeEntry?.id ?? speciesId;
   const selectedTreeDetailLabel = selectedTreeEntry?.label ?? treeSpeciesLabel;
+  const selectedTreeVerse = getStableTreeVerse(`species:${selectedTreeSpeciesId}`);
   const selectedTreeStageImages =
     TREE_STAGE_IMAGES_BY_SPECIES[selectedTreeSpeciesId] ?? TREE_STAGE_IMAGES_BY_SPECIES.apple;
   const resolvedSelectedTreeStageImages = selectedTreeStageImages.map((source, stageIndex) => ({
@@ -1546,6 +1836,47 @@ export function GrowScreen() {
             ) : null}
           </>
         ) : null}
+        {isNightSkyScene ? (
+          <View pointerEvents="none" style={styles.nightSkySparkleLayer}>
+            {NIGHT_SKY_SPARKLES.map((sparkle) => (
+              <Animated.View
+                key={`night-sparkle-${sparkle.id}`}
+                style={[
+                  styles.nightSkySparkle,
+                  {
+                    left: `${sparkle.x}%`,
+                    top: `${sparkle.y}%`,
+                    width: sparkle.size,
+                    height: sparkle.size,
+                    borderRadius: sparkle.size,
+                  },
+                  nightSkyTwinkleStyles[sparkle.phase],
+                ]}>
+                <View
+                  style={[
+                    styles.nightSkySparkleVerticalRay,
+                    {
+                      height: sparkle.size * 4.4,
+                      marginTop: -sparkle.size * 1.7,
+                      borderRadius: sparkle.size,
+                    },
+                  ]}
+                />
+                <View
+                  style={[
+                    styles.nightSkySparkleHorizontalRay,
+                    {
+                      width: sparkle.size * 4.4,
+                      marginLeft: -sparkle.size * 1.7,
+                      borderRadius: sparkle.size,
+                    },
+                  ]}
+                />
+                <View style={styles.nightSkySparkleCore} />
+              </Animated.View>
+            ))}
+          </View>
+        ) : null}
         {showNextScene ? (
           <AnimatedExpoImage
             source={resolvedNextFieldImage}
@@ -1558,13 +1889,14 @@ export function GrowScreen() {
             ]}
           />
         ) : null}
-        <View
-          pointerEvents="none"
-          accessible={false}
-          accessibilityElementsHidden
-          importantForAccessibility="no-hide-descendants"
-          style={[styles.currentTreeWrap, { bottom: treeBottomOffset }]}>
-          <View style={[styles.currentTreeLayerStack, { width: treeArtSize, height: treeArtSize }]}>
+        {treeSnapshotReady ? (
+          <View
+            pointerEvents="none"
+            accessible={false}
+            accessibilityElementsHidden
+            importantForAccessibility="no-hide-descendants"
+            style={[styles.currentTreeWrap, { bottom: treeBottomOffset }]}>
+            <View style={[styles.currentTreeLayerStack, { width: treeArtSize, height: treeArtSize }]}>
             <View
               style={[
                 styles.currentTreeBaseClip,
@@ -1669,8 +2001,9 @@ export function GrowScreen() {
                 accessible={false}
               />
             </Animated.View>
+            </View>
           </View>
-        </View>
+        ) : null}
 
         {roamingAnimalEntries.map(({ companion, imageAssets }, index) => (
           <RoamingAnimal
@@ -2168,9 +2501,9 @@ export function GrowScreen() {
                 </View>
 
                 <View style={styles.treeDetailVerseCard}>
-                  <Text style={styles.verseTheme}>{growthVerse.theme}</Text>
-                  <Text style={styles.verseExcerpt}>{growthVerse.excerpt}</Text>
-                  <Text style={styles.verseReference}>{growthVerse.reference}</Text>
+                  <Text style={styles.verseTheme}>{selectedTreeVerse.theme}</Text>
+                  <Text style={styles.verseExcerpt}>{selectedTreeVerse.excerpt}</Text>
+                  <Text style={styles.verseReference}>{selectedTreeVerse.reference}</Text>
                 </View>
               </ScrollView>
             ) : (
@@ -2420,6 +2753,43 @@ const styles = StyleSheet.create({
   },
   forestLeafLayer: {
     zIndex: 2,
+  },
+  nightSkySparkleLayer: {
+    position: 'absolute',
+    top: 0,
+    right: 0,
+    left: 0,
+    height: '43%',
+    zIndex: 2,
+    overflow: 'visible',
+  },
+  nightSkySparkle: {
+    position: 'absolute',
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: 'rgba(255, 246, 193, 0.42)',
+  },
+  nightSkySparkleVerticalRay: {
+    position: 'absolute',
+    top: '50%',
+    left: '50%',
+    width: 1,
+    marginLeft: -0.5,
+    backgroundColor: 'rgba(255, 248, 209, 0.68)',
+  },
+  nightSkySparkleHorizontalRay: {
+    position: 'absolute',
+    top: '50%',
+    left: '50%',
+    height: 1,
+    marginTop: -0.5,
+    backgroundColor: 'rgba(255, 248, 209, 0.58)',
+  },
+  nightSkySparkleCore: {
+    width: '100%',
+    height: '100%',
+    borderRadius: 999,
+    backgroundColor: '#fff8d0',
   },
   currentTreeWrap: {
     position: 'absolute',
@@ -3488,12 +3858,12 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   collectionDexGridContent: {
-    paddingHorizontal: 12,
+    paddingHorizontal: COLLECTION_DEX_GRID_HORIZONTAL_PADDING,
     paddingTop: 14,
     paddingBottom: 32,
     flexDirection: 'row',
     flexWrap: 'wrap',
-    gap: 8,
+    gap: COLLECTION_DEX_GRID_GAP,
   },
   collectionDexCard: {
     minHeight: 158,

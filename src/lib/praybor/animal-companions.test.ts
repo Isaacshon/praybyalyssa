@@ -22,6 +22,7 @@ describe('animal companion unlocks', () => {
       'rock_hyrax',
       'lion',
       'sheep',
+      'dog',
     ]);
   });
 
@@ -68,7 +69,7 @@ describe('animal companion unlocks', () => {
     ).toEqual(['baby_rabbit', 'desert_fox', 'rock_hyrax']);
   });
 
-  it('unlocks the lion and sheep as later trees bear fruit', () => {
+  it('unlocks the lion, sheep, and dog as later trees bear fruit', () => {
     expect(
       getUnlockedAnimalCompanions({
         activeTree: activeTreeWithGrowthPoints(0),
@@ -82,6 +83,13 @@ describe('animal companion unlocks', () => {
         completedTreeCount: 5,
       }).map((animal) => animal.id),
     ).toEqual(['baby_rabbit', 'desert_fox', 'rock_hyrax', 'lion', 'sheep']);
+
+    expect(
+      getUnlockedAnimalCompanions({
+        activeTree: activeTreeWithGrowthPoints(0),
+        completedTreeCount: 6,
+      }).map((animal) => animal.id),
+    ).toEqual(['baby_rabbit', 'desert_fox', 'rock_hyrax', 'lion', 'sheep', 'dog']);
   });
 
   it('unlocks every animal companion for admins regardless of tree progress', () => {
@@ -91,7 +99,7 @@ describe('animal companion unlocks', () => {
         completedTreeCount: 0,
         isAdmin: true,
       }).map((animal) => animal.id),
-    ).toEqual(['baby_rabbit', 'desert_fox', 'rock_hyrax', 'lion', 'sheep']);
+    ).toEqual(['baby_rabbit', 'desert_fox', 'rock_hyrax', 'lion', 'sheep', 'dog']);
   });
 
   it('keeps the baby rabbit unlocked after the fruiting tree becomes a completed tree', () => {
