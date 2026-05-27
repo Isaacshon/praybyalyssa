@@ -12,6 +12,7 @@ import { buildSituationPrayer } from './situation-prompts';
 
 export type PrayerCard = {
   id: string;
+  authorId?: string;
   title: string;
   body: string;
   mood: MoodId;
@@ -24,12 +25,22 @@ export type PrayerCard = {
   isSensitive?: boolean;
   paperColor?: string;
   pinSeed?: number;
+  location?: {
+    latitude: number;
+    longitude: number;
+  };
 };
 
 const publicQuietMindPrayer = buildSituationPrayer(['overthinking', 'relationship_conflict']);
 const publicHealingPrayer = buildSituationPrayer(['health_recovery', 'gratitude']);
 const publicRestPrayer = buildSituationPrayer(['exhaustion', 'burnout']);
 const publicInterviewPrayer = buildSituationPrayer(['interview', 'future_direction']);
+const publicFamilyPeacePrayer = buildSituationPrayer(['family_tension', 'forgiveness']);
+const publicProvisionPrayer = buildSituationPrayer(['financial_pressure', 'job_search']);
+const publicSurgeryPrayer = buildSituationPrayer(['surgery', 'doctor_wisdom']);
+const publicGuidancePrayer = buildSituationPrayer(['guidance', 'decision']);
+const publicSleepPrayer = buildSituationPrayer(['sleep', 'anxiety']);
+const publicChurchServingPrayer = buildSituationPrayer(['church_community', 'serving_church']);
 const groupCommunityPrayer = buildSituationPrayer(['church_community', 'serving_church']);
 const groupTreatmentPrayer = buildSituationPrayer(['treatment', 'doctor_wisdom']);
 const groupThanksPrayer = buildSituationPrayer(['answered_prayer', 'relationship_conflict']);
@@ -79,6 +90,73 @@ export const publicPrayerCards: PrayerCard[] = [
     authorLabel: 'Daniel',
     neighborhood: 'Midtown',
     postedAgo: '2h',
+  },
+  {
+    id: 'pub-5',
+    title: publicFamilyPeacePrayer.title,
+    body: publicFamilyPeacePrayer.body,
+    mood: 'uncomfortable',
+    visibility: 'public',
+    identity: 'anonymous',
+    authorLabel: 'A neighbor',
+    neighborhood: 'Midtown',
+    postedAgo: '2h',
+  },
+  {
+    id: 'pub-6',
+    title: publicProvisionPrayer.title,
+    body: publicProvisionPrayer.body,
+    mood: 'afraid',
+    visibility: 'public',
+    identity: 'anonymous',
+    authorLabel: 'A neighbor',
+    neighborhood: 'Midtown',
+    postedAgo: '3h',
+  },
+  {
+    id: 'pub-7',
+    title: publicSurgeryPrayer.title,
+    body: publicSurgeryPrayer.body,
+    mood: 'ordinary',
+    visibility: 'public',
+    identity: 'real_name',
+    authorLabel: 'Grace',
+    neighborhood: 'Midtown',
+    postedAgo: '3h',
+    isSensitive: true,
+  },
+  {
+    id: 'pub-8',
+    title: publicGuidancePrayer.title,
+    body: publicGuidancePrayer.body,
+    mood: 'surprised',
+    visibility: 'public',
+    identity: 'anonymous',
+    authorLabel: 'A neighbor',
+    neighborhood: 'Midtown',
+    postedAgo: '4h',
+  },
+  {
+    id: 'pub-9',
+    title: publicSleepPrayer.title,
+    body: publicSleepPrayer.body,
+    mood: 'exhausted',
+    visibility: 'public',
+    identity: 'anonymous',
+    authorLabel: 'A neighbor',
+    neighborhood: 'Midtown',
+    postedAgo: '5h',
+  },
+  {
+    id: 'pub-10',
+    title: publicChurchServingPrayer.title,
+    body: publicChurchServingPrayer.body,
+    mood: 'joy',
+    visibility: 'public',
+    identity: 'real_name',
+    authorLabel: 'Ethan',
+    neighborhood: 'Midtown',
+    postedAgo: '6h',
   },
 ];
 
@@ -132,29 +210,35 @@ export const initialReactions: PrayerReaction[] = [
 export const activeTree: ActiveTree = {
   id: 'active-tree',
   speciesId: 'apple',
-  growthPoints: 40,
-  startedAt: '2026-05-10T12:00:00.000Z',
+  growthPoints: 4,
+  startedAt: '2026-05-17T12:00:00.000Z',
+  growthEvents: [
+    { type: 'prayer_posted', visibility: 'public', occurredOn: '2026-05-17' },
+    { type: 'reaction_given', visibility: 'public', occurredOn: '2026-05-18' },
+    { type: 'reaction_given', visibility: 'public', occurredOn: '2026-05-19' },
+    { type: 'prayer_posted', visibility: 'public', occurredOn: '2026-05-20' },
+  ],
 };
 
 export const forestCollection: TreeCollectionEntry[] = [
   {
     id: 'forest-1',
     speciesId: 'pear',
-    growthPoints: 100,
+    growthPoints: 7,
     startedAt: '2026-04-02T12:00:00.000Z',
     completedAt: '2026-04-12T12:00:00.000Z',
   },
   {
     id: 'forest-2',
-    speciesId: 'cedar',
-    growthPoints: 100,
+    speciesId: 'olive',
+    growthPoints: 7,
     startedAt: '2026-04-14T12:00:00.000Z',
     completedAt: '2026-04-25T12:00:00.000Z',
   },
   {
     id: 'forest-3',
-    speciesId: 'cherry_blossom',
-    growthPoints: 100,
+    speciesId: 'cherry',
+    growthPoints: 7,
     startedAt: '2026-04-28T12:00:00.000Z',
     completedAt: '2026-05-08T12:00:00.000Z',
   },

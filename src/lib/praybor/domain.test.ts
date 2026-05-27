@@ -4,6 +4,7 @@ import {
   COMPLETE_GROWTH_POINTS,
   GROWTH_EVENT_POINTS,
   MOODS,
+  TREE_SPECIES,
   addGrowthEvent,
   completeActiveTree,
   createPrayerDraft,
@@ -34,6 +35,29 @@ describe('PrayBor domain contract', () => {
       expect(mood.accessibilityLabel).toContain(mood.label);
       expect(mood.color).toMatch(/^#[0-9A-F]{6}$/i);
     }
+  });
+
+  it('exposes the full 17 tree species catalog for the grow collection', () => {
+    expect(TREE_SPECIES).toHaveLength(17);
+    expect(TREE_SPECIES.map((species) => species.id)).toEqual([
+      'plum',
+      'cherry',
+      'olive',
+      'orange',
+      'palm',
+      'avocado',
+      'almond',
+      'pomegranate',
+      'apricot',
+      'apple',
+      'loquat',
+      'peach',
+      'pear',
+      'chestnut',
+      'mango',
+      'guava',
+      'persimmon',
+    ]);
   });
 
   it('requires mood selection before creating a prayer draft', () => {
@@ -101,10 +125,11 @@ describe('PrayBor domain contract', () => {
     expect(countReactions(otherUser)).toEqual({ prayer: 0, amen: 0, comfort: 1, love: 1 });
   });
 
-  it('balances tree growth around repeated prayer-for-others actions', () => {
-    expect(COMPLETE_GROWTH_POINTS).toBe(100);
-    expect(GROWTH_EVENT_POINTS.reaction_given).toBe(10);
-    expect(GROWTH_EVENT_POINTS.prayer_posted).toBeLessThan(GROWTH_EVENT_POINTS.reaction_given);
+  it('grows trees through one public or group prayer action per day over a 7 day cycle', () => {
+    expect(COMPLETE_GROWTH_POINTS).toBe(7);
+    expect(GROWTH_EVENT_POINTS.reaction_given).toBe(1);
+    expect(GROWTH_EVENT_POINTS.prayer_posted).toBe(1);
+    expect(GROWTH_EVENT_POINTS.recap_completed).toBe(0);
 
     let tree = {
       id: 'active-tree',
@@ -113,14 +138,28 @@ describe('PrayBor domain contract', () => {
       startedAt: '2026-05-19T12:00:00.000Z',
     };
 
-    tree = addGrowthEvent(tree, { type: 'reaction_given', occurredOn: '2026-05-19' });
-    expect(tree.growthPoints).toBe(10);
-    expect(getGrowthStage(tree.growthPoints)).toBe('seed');
+    tree = addGrowthEvent(tree, { type: 'reaction_given', visibility: 'public', occurredOn: '2026-05-19' });
+    tree = addGrowthEvent(tree, { type: 'prayer_posted', visibility: 'public', occurredOn: '2026-05-19' });
+    expect(tree.growthPoints).toBe(1);
+    expect(getGrowthStage(tree.growthPoints)).toBe('sprout');
 
-    tree = addGrowthEvent(tree, { type: 'reaction_given', occurredOn: '2026-05-20' });
-    tree = addGrowthEvent(tree, { type: 'reaction_given', occurredOn: '2026-05-21' });
-    tree = addGrowthEvent(tree, { type: 'reaction_given', occurredOn: '2026-05-22' });
-    expect(getGrowthStage(tree.growthPoints)).toBe('small_plant');
+    tree = addGrowthEvent(tree, { type: 'reaction_given', visibility: 'group', occurredOn: '2026-05-20' });
+    tree = addGrowthEvent(tree, { type: 'recap_completed', visibility: 'public', occurredOn: '2026-05-21' });
+    expect(tree.growthPoints).toBe(2);
+
+    for (const occurredOn of [
+      '2026-05-20',
+      '2026-05-21',
+      '2026-05-22',
+      '2026-05-23',
+      '2026-05-24',
+      '2026-05-25',
+    ]) {
+      tree = addGrowthEvent(tree, { type: 'reaction_given', visibility: 'public', occurredOn });
+    }
+
+    expect(tree.growthPoints).toBe(7);
+    expect(getGrowthStage(tree.growthPoints)).toBe('completed');
   });
 
   it('turns a completed fruiting tree into a forest tree and the next seed', () => {
@@ -132,7 +171,7 @@ describe('PrayBor domain contract', () => {
       {
         id: 'active-tree',
         speciesId: 'apple',
-        growthPoints: 100,
+        growthPoints: 7,
         startedAt: '2026-05-01T12:00:00.000Z',
       },
       species,
@@ -141,7 +180,7 @@ describe('PrayBor domain contract', () => {
 
     expect(completed.collectionEntry).toMatchObject({
       speciesId: 'apple',
-      growthPoints: 100,
+      growthPoints: 7,
     });
     expect(completed.nextActiveTree.speciesId).toBe('cedar');
     expect(completed.nextActiveTree.growthPoints).toBe(0);

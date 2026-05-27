@@ -45,9 +45,9 @@ export function MoodFace({ mood, size = 58 }: ArtworkProps & { mood: MoodId }) {
         <Circle cx="64" cy="60" r="24" fill={fill} />
         <Circle cx="48" cy="48" r="25" fill={fill} />
       </G>
-      <Path d={expression.leftEye} stroke="#0A0600" strokeWidth="6" strokeLinecap="round" fill="none" />
-      <Path d={expression.rightEye} stroke="#0A0600" strokeWidth="6" strokeLinecap="round" fill="none" />
-      <Path d={expression.mouth} stroke="#0A0600" strokeWidth="6" strokeLinecap="round" fill="none" />
+      <Path d={expression.leftEye} stroke="#2a1c13" strokeWidth="6" strokeLinecap="round" fill="none" />
+      <Path d={expression.rightEye} stroke="#2a1c13" strokeWidth="6" strokeLinecap="round" fill="none" />
+      <Path d={expression.mouth} stroke="#2a1c13" strokeWidth="6" strokeLinecap="round" fill="none" />
       {mood === 'sad' ? <Circle cx="31" cy="58" r="5" fill="#BFE5FF" /> : null}
       {mood === 'exhausted' ? (
         <Path d="M30 63 C40 72 56 72 66 63" stroke="#BFE5FF" strokeWidth="5" strokeLinecap="round" fill="none" />
@@ -136,7 +136,7 @@ export function getPostItLayerEdgeColor(color: string, opacity = 0.34) {
 export function ReactionIcon({
   type,
   size = 26,
-  color = '#0A0600',
+  color = '#2a1c13',
 }: ArtworkProps & { type: ReactionType | 'share' | 'review' | 'mission'; color?: string }) {
   return (
     <Svg width={size} height={size} viewBox="0 0 48 48">
@@ -144,7 +144,7 @@ export function ReactionIcon({
         <Path
           d="M24 40 C15 32 8 26 8 17 C8 11 12 7 18 7 C21 7 23 9 24 11 C25 9 28 7 31 7 C37 7 41 11 41 17 C41 26 33 33 24 40 Z"
           fill="#F2475D"
-          stroke="#0A0600"
+          stroke="#2a1c13"
           strokeWidth="3"
           strokeLinejoin="round"
         />
@@ -204,7 +204,7 @@ export function ReactionIcon({
 export function UtilityIcon({
   type,
   size = 24,
-  color = '#0A0600',
+  color = '#2a1c13',
 }: ArtworkProps & {
   type:
     | 'back'
@@ -220,7 +220,8 @@ export function UtilityIcon({
     | 'arrowRight'
     | 'check'
     | 'draw'
-    | 'save';
+    | 'save'
+    | 'siren';
   color?: string;
 }) {
   return (
@@ -303,6 +304,17 @@ export function UtilityIcon({
             <Path d="M18 38 V28 H32 V38" />
           </>
         ) : null}
+        {type === 'siren' ? (
+          <>
+            <Path d="M15 36 H33" />
+            <Path d="M18 34 V24 C18 18 30 18 30 24 V34" />
+            <Path d="M14 24 H10" />
+            <Path d="M38 24 H34" />
+            <Path d="M17 14 L14 10" />
+            <Path d="M31 14 L34 10" />
+            <Path d="M22 27 H26" />
+          </>
+        ) : null}
       </G>
     </Svg>
   );
@@ -329,20 +341,20 @@ export function PrayerCardArt({
         <G>
           <Rect x="30" y="26" width="34" height="46" rx="10" fill={fill} opacity="0.8" />
           <Path d="M37 39 H58 M37 49 H54" stroke="#FFFFFF" strokeWidth="5" strokeLinecap="round" />
-          <Path d="M30 69 C45 62 57 64 70 73" stroke="#0A0600" strokeWidth="4" fill="none" strokeLinecap="round" />
+          <Path d="M30 69 C45 62 57 64 70 73" stroke="#2a1c13" strokeWidth="4" fill="none" strokeLinecap="round" />
         </G>
       ) : null}
       {variant % 3 === 1 ? (
         <G>
           <Circle cx="37" cy="42" r="17" fill={fill} opacity="0.85" />
           <Circle cx="58" cy="54" r="18" fill="#FFFFFF" opacity="0.75" />
-          <Path d="M29 61 C39 50 52 48 65 59" stroke="#0A0600" strokeWidth="4" fill="none" strokeLinecap="round" />
+          <Path d="M29 61 C39 50 52 48 65 59" stroke="#2a1c13" strokeWidth="4" fill="none" strokeLinecap="round" />
         </G>
       ) : null}
       {variant % 3 === 2 ? (
         <G>
           <Path d="M28 62 C35 32 61 30 68 62 Z" fill={fill} opacity="0.82" />
-          <Path d="M48 68 V35" stroke="#0A0600" strokeWidth="4" strokeLinecap="round" />
+          <Path d="M48 68 V35" stroke="#2a1c13" strokeWidth="4" strokeLinecap="round" />
           <Path d="M34 54 C43 47 53 47 62 54" stroke="#FFFFFF" strokeWidth="5" fill="none" strokeLinecap="round" />
         </G>
       ) : null}
@@ -406,8 +418,8 @@ export function GardenStage({
         <G>
           <Ellipse cx="120" cy="151" rx="25" ry="31" fill="#A3D553" stroke="#5B9F45" strokeWidth="5" transform="rotate(-22 120 151)" />
           <Path d="M106 148 C118 139 126 139 137 147" stroke="#E6F7A5" strokeWidth="5" strokeLinecap="round" />
-          <Circle cx="113" cy="156" r="2.5" fill="#0A0600" />
-          <Circle cx="126" cy="155" r="2.5" fill="#0A0600" />
+          <Circle cx="113" cy="156" r="2.5" fill="#2a1c13" />
+          <Circle cx="126" cy="155" r="2.5" fill="#2a1c13" />
         </G>
       ) : null}
       {!showTree && showLeaves ? (
@@ -457,21 +469,21 @@ export function ForestTree({
       {species === 'cedar' ? (
         <G>
           <Rect x="43" y="62" width="10" height="28" rx="4" fill="#8B5A35" />
-          <Path d="M48 12 L24 49 H36 L19 75 H77 L60 49 H72 Z" fill="#3E9A4A" stroke="#0A0600" strokeWidth="4" strokeLinejoin="round" />
+          <Path d="M48 12 L24 49 H36 L19 75 H77 L60 49 H72 Z" fill="#3E9A4A" stroke="#2a1c13" strokeWidth="4" strokeLinejoin="round" />
           <Path d="M48 12 L48 75" stroke="#2E6F3B" strokeWidth="4" opacity="0.5" />
         </G>
       ) : species === 'cherry_blossom' ? (
         <G>
           <Rect x="43" y="58" width="12" height="34" rx="5" fill="#8B5A35" />
-          <Circle cx="38" cy="43" r="18" fill="#FF9CC6" stroke="#0A0600" strokeWidth="3" />
-          <Circle cx="58" cy="43" r="18" fill="#FF9CC6" stroke="#0A0600" strokeWidth="3" />
-          <Circle cx="49" cy="28" r="18" fill="#FFB7D5" stroke="#0A0600" strokeWidth="3" />
+          <Circle cx="38" cy="43" r="18" fill="#FF9CC6" stroke="#2a1c13" strokeWidth="3" />
+          <Circle cx="58" cy="43" r="18" fill="#FF9CC6" stroke="#2a1c13" strokeWidth="3" />
+          <Circle cx="49" cy="28" r="18" fill="#FFB7D5" stroke="#2a1c13" strokeWidth="3" />
           <Circle cx="48" cy="46" r="8" fill="#FFE56D" />
         </G>
       ) : (
         <G>
           <Rect x="43" y="56" width="12" height="36" rx="5" fill="#8B5A35" />
-          <Path d="M48 13 C68 13 81 27 78 46 C75 65 61 72 45 68 C28 64 19 52 22 36 C25 21 34 13 48 13 Z" fill={species === 'pear' ? '#B9D640' : '#69B956'} stroke="#0A0600" strokeWidth="4" />
+          <Path d="M48 13 C68 13 81 27 78 46 C75 65 61 72 45 68 C28 64 19 52 22 36 C25 21 34 13 48 13 Z" fill={species === 'pear' ? '#B9D640' : '#69B956'} stroke="#2a1c13" strokeWidth="4" />
           <Circle cx="58" cy="41" r="4" fill={species === 'pear' ? '#7EA121' : '#F3B247'} />
           <Circle cx="46" cy="35" r="3.5" fill={species === 'pear' ? '#7EA121' : '#F3B247'} />
           <Circle cx="63" cy="52" r="3.5" fill={species === 'pear' ? '#7EA121' : '#F3B247'} />
@@ -497,12 +509,12 @@ function WelcomeScene({ accentId }: { accentId: string }) {
   return (
     <G>
       <Rect x="128" y="62" width="48" height="88" rx="8" fill={`url(#${accentId})`} />
-      <Path d="M72 139 H169" stroke="#0A0600" strokeWidth="4" strokeLinecap="round" />
-      <Circle cx="77" cy="91" r="13" fill="#0A0600" />
-      <Path d="M70 105 C62 119 60 135 64 153" stroke="#0A0600" strokeWidth="5" strokeLinecap="round" fill="none" />
-      <Path d="M83 106 C98 116 110 122 126 123" stroke="#0A0600" strokeWidth="5" strokeLinecap="round" fill="none" />
-      <Path d="M65 153 L49 174" stroke="#0A0600" strokeWidth="5" strokeLinecap="round" />
-      <Path d="M71 153 L91 174" stroke="#0A0600" strokeWidth="5" strokeLinecap="round" />
+      <Path d="M72 139 H169" stroke="#2a1c13" strokeWidth="4" strokeLinecap="round" />
+      <Circle cx="77" cy="91" r="13" fill="#2a1c13" />
+      <Path d="M70 105 C62 119 60 135 64 153" stroke="#2a1c13" strokeWidth="5" strokeLinecap="round" fill="none" />
+      <Path d="M83 106 C98 116 110 122 126 123" stroke="#2a1c13" strokeWidth="5" strokeLinecap="round" fill="none" />
+      <Path d="M65 153 L49 174" stroke="#2a1c13" strokeWidth="5" strokeLinecap="round" />
+      <Path d="M71 153 L91 174" stroke="#2a1c13" strokeWidth="5" strokeLinecap="round" />
       <Path d="M187 132 C185 114 197 105 213 106 C214 123 205 133 187 132 Z" fill="#75BF74" />
       <Path d="M187 132 V165" stroke="#3B743F" strokeWidth="5" strokeLinecap="round" />
     </G>
@@ -512,13 +524,13 @@ function WelcomeScene({ accentId }: { accentId: string }) {
 function BoardScene({ accentId }: { accentId: string }) {
   return (
     <G>
-      <Rect x="68" y="40" width="74" height="132" rx="18" fill="#FFFFFF" stroke="#0A0600" strokeWidth="4" />
+      <Rect x="68" y="40" width="74" height="132" rx="18" fill="#FFFFFF" stroke="#2a1c13" strokeWidth="4" />
       <Rect x="79" y="63" width="52" height="30" rx="7" fill="#E7F1DD" />
       <Rect x="79" y="101" width="52" height="44" rx="8" fill={`url(#${accentId})`} opacity="0.85" />
-      <Rect x="132" y="78" width="65" height="43" rx="8" fill="#FF8A5B" stroke="#0A0600" strokeWidth="3" />
+      <Rect x="132" y="78" width="65" height="43" rx="8" fill="#FF8A5B" stroke="#2a1c13" strokeWidth="3" />
       <Path d="M147 94 H181 M147 105 H172" stroke="#FFFFFF" strokeWidth="4" strokeLinecap="round" />
-      <Circle cx="58" cy="139" r="15" fill="#F5D35B" stroke="#0A0600" strokeWidth="3" />
-      <Path d="M52 139 C57 146 64 146 69 139" stroke="#0A0600" strokeWidth="3" fill="none" strokeLinecap="round" />
+      <Circle cx="58" cy="139" r="15" fill="#F5D35B" stroke="#2a1c13" strokeWidth="3" />
+      <Path d="M52 139 C57 146 64 146 69 139" stroke="#2a1c13" strokeWidth="3" fill="none" strokeLinecap="round" />
     </G>
   );
 }
@@ -527,8 +539,8 @@ function GroupsScene({ accentId }: { accentId: string }) {
   return (
     <G>
       <Ellipse cx="118" cy="135" rx="72" ry="30" fill="#FFF1EA" />
-      <Rect x="62" y="72" width="116" height="57" rx="14" fill="#FFFFFF" stroke="#0A0600" strokeWidth="4" />
-      <Path d="M82 94 H144 M82 108 H128" stroke="#0A0600" strokeWidth="4" strokeLinecap="round" />
+      <Rect x="62" y="72" width="116" height="57" rx="14" fill="#FFFFFF" stroke="#2a1c13" strokeWidth="4" />
+      <Path d="M82 94 H144 M82 108 H128" stroke="#2a1c13" strokeWidth="4" strokeLinecap="round" />
       <Rect x="148" y="84" width="42" height="26" rx="7" fill={`url(#${accentId})`} />
       <Circle cx="84" cy="150" r="17" fill="#71B784" />
       <Circle cx="120" cy="154" r="18" fill="#F2C46D" />
@@ -554,12 +566,12 @@ function GrowSceneSvg() {
 function RecapScene({ accentId }: { accentId: string }) {
   return (
     <G>
-      <Rect x="54" y="54" width="132" height="98" rx="20" fill="#FFFFFF" stroke="#0A0600" strokeWidth="4" />
-      <Path d="M77 82 H147 M77 103 H127" stroke="#0A0600" strokeWidth="4" strokeLinecap="round" />
+      <Rect x="54" y="54" width="132" height="98" rx="20" fill="#FFFFFF" stroke="#2a1c13" strokeWidth="4" />
+      <Path d="M77 82 H147 M77 103 H127" stroke="#2a1c13" strokeWidth="4" strokeLinecap="round" />
       <Rect x="76" y="121" width="82" height="14" rx="7" fill="#FFE0D2" />
       <Rect x="76" y="121" width="47" height="14" rx="7" fill="#FF8A5B" />
       <Circle cx="171" cy="59" r="16" fill={`url(#${accentId})`} />
-      <Path d="M166 56 C171 63 176 63 181 56" stroke="#0A0600" strokeWidth="3" fill="none" strokeLinecap="round" />
+      <Path d="M166 56 C171 63 176 63 181 56" stroke="#2a1c13" strokeWidth="3" fill="none" strokeLinecap="round" />
     </G>
   );
 }

@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import {
   Alert,
   Image,
@@ -13,10 +13,13 @@ import {
   View,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import { useLocalSearchParams } from 'expo-router';
 
 import { AnimatedAsset } from '@/components/praybor/AnimatedAsset';
 import { BlessiLogo } from '@/components/praybor/BlessiLogo';
+import { getMaskingTapeTheme, MaskingTapeSurface } from '@/components/praybor/MaskingTapeSurface';
 import { PrayerComposerSheet } from '@/components/praybor/PrayerComposerSheet';
+import { PrayerReportModal } from '@/components/praybor/PrayerReportModal';
 import { getPostItPinImage, getPostItPinImageForKey } from '@/components/praybor/postItPins';
 import {
   getPostItFoldShade,
@@ -28,6 +31,12 @@ import {
 } from '@/components/praybor/PrayborArtwork';
 import { Colors } from '@/constants/theme';
 import {
+  maskProfanityInText,
+  submitPrayerReport,
+  type PrayerReportReason,
+} from '@/lib/praybor/content-safety';
+import { signInWithEmail } from '@/lib/praybor/auth';
+import {
   MOODS,
   setPrayerReaction,
   type MoodId,
@@ -35,28 +44,31 @@ import {
   type PrayerReaction,
   type ReactionType,
 } from '@/lib/praybor/domain';
-import { groupPrayerCards, initialReactions, type PrayerCard } from '@/lib/praybor/sample-data';
-import { buildSituationPrayer } from '@/lib/praybor/situation-prompts';
+import {
+  createPersistedPrayerGroup,
+  fetchPersistedPrayerGroups,
+  generateInviteCode,
+  joinPersistedPrayerGroup,
+  type GroupCategory,
+  type PersistedPrayerGroup,
+} from '@/lib/praybor/prayer-groups';
+import {
+  createPersistedPrayerCard,
+  fetchPersistedPrayerCards,
+} from '@/lib/praybor/prayer-posts';
+import {
+  fetchPersistedPrayerReactions,
+  upsertPersistedPrayerReaction,
+} from '@/lib/praybor/prayer-reactions';
+import { recordTreeGrowthAction } from '@/lib/praybor/growth-state';
+import { getCurrentSupabaseUser } from '@/lib/praybor/session';
+import type { PrayerCard } from '@/lib/praybor/sample-data';
 
-type PrayerGroup = {
-  id: string;
-  name: string;
-  subtitle: string;
-  rhythm: string;
-  updatedAgo: string;
-  memberCount: number;
-  accent: string;
-  members: MoodId[];
-  posts: PrayerCard[];
-};
+type PrayerGroup = PersistedPrayerGroup;
 
 type CreateGroupStep = 'setup' | 'code';
-type GroupCategory = 'church' | 'friends' | 'family' | 'random' | 'small_group';
 
 const colors = Colors.light;
-const youthTravelPrayer = buildSituationPrayer(['protection', 'time_pressure']);
-const youthWelcomePrayer = buildSituationPrayer(['church_community', 'relationship_closeness']);
-const morningPeacePrayer = buildSituationPrayer(['anxiety', 'guidance']);
 const groupPostItBackgrounds = [
   '#FFF1CC',
   '#FFD8D4',
@@ -66,68 +78,6 @@ const groupPostItBackgrounds = [
   '#B78BDD',
 ];
 
-const initialGroups: PrayerGroup[] = [
-  {
-    id: 'friday-house',
-    name: 'Friday House Church',
-    subtitle: '3 prayer requests from members',
-    rhythm: 'Friday evening prayer rhythm',
-    updatedAgo: '8 min ago',
-    memberCount: 12,
-    accent: '#FFD8D4',
-    members: ['joy', 'sad', 'surprised', 'gratitude'],
-    posts: groupPrayerCards,
-  },
-  {
-    id: 'youth-retreat',
-    name: 'Youth Retreat Team',
-    subtitle: '4 retreat prep prayers',
-    rhythm: 'Daily 10 PM check-in',
-    updatedAgo: 'This morning',
-    memberCount: 8,
-    accent: '#DDEDF5',
-    members: ['excitement', 'ordinary', 'afraid', 'joy'],
-    posts: [
-      {
-        ...groupPrayerCards[0],
-        ...youthTravelPrayer,
-        id: 'team-1',
-        mood: 'ordinary',
-        groupName: 'Youth Retreat Team',
-        postedAgo: '21m',
-      },
-      {
-        ...groupPrayerCards[1],
-        ...youthWelcomePrayer,
-        id: 'team-2',
-        mood: 'afraid',
-        groupName: 'Youth Retreat Team',
-        postedAgo: '1h',
-      },
-    ],
-  },
-  {
-    id: 'morning-prayer',
-    name: 'Morning Prayer',
-    subtitle: '2 morning prayer rhythms',
-    rhythm: 'Daily at 7 AM',
-    updatedAgo: 'Yesterday',
-    memberCount: 5,
-    accent: '#E7F3DD',
-    members: ['gratitude', 'joy', 'ordinary'],
-    posts: [
-      {
-        ...groupPrayerCards[2],
-        ...morningPeacePrayer,
-        id: 'morning-1',
-        mood: 'gratitude',
-        groupName: 'Morning Prayer',
-        postedAgo: '2h',
-      },
-    ],
-  },
-];
-
 const groupCategoryOptions: { id: GroupCategory; label: string }[] = [
   { id: 'church', label: 'Church' },
   { id: 'friends', label: 'Friends' },
@@ -135,8 +85,93 @@ const groupCategoryOptions: { id: GroupCategory; label: string }[] = [
   { id: 'random', label: 'Random' },
   { id: 'small_group', label: 'Small Group' },
 ];
-const newGroupInviteCode = 'ccqnw01';
-const inviteBaseUrl = 'https://praybor.app/join';
+const inviteBaseUrl = 'https://blessie.ca/invite';
+
+type ShareInvitePayload = {
+  message: string;
+  title: string;
+  url: string;
+};
+
+async function shareInvite({ message, title, url }: ShareInvitePayload) {
+  if (Platform.OS === 'web') {
+    if (typeof navigator !== 'undefined' && typeof navigator.share === 'function') {
+      try {
+        await navigator.share({ title, text: message, url });
+        return;
+      } catch {
+        // Web Share can reject on localhost, unsupported browsers, or user cancel.
+      }
+    }
+
+    if (await copyInviteToClipboard(message)) {
+      showWebInviteMessage('Invite copied', 'The invite message was copied to your clipboard.');
+      return;
+    }
+
+    showWebInviteMessage('Copy invite', message);
+    return;
+  }
+
+  try {
+    await Share.share({ title, message, url });
+  } catch (shareError) {
+    Alert.alert(
+      'Could not open sharing',
+      shareError instanceof Error ? shareError.message : 'Please try again in a moment.',
+    );
+  }
+}
+
+function buildInvitePayload(inviteCode: string) {
+  const normalizedCode = inviteCode.trim().replace(/^#/, '');
+  const url = `${inviteBaseUrl}/${encodeURIComponent(normalizedCode)}`;
+  const message = [
+    "Let's pray for one another together.",
+    `Invite code: ${normalizedCode}`,
+    url,
+  ].join('\n');
+
+  return { message, url };
+}
+
+async function copyInviteToClipboard(message: string) {
+  if (typeof navigator !== 'undefined' && navigator.clipboard?.writeText) {
+    try {
+      await navigator.clipboard.writeText(message);
+      return true;
+    } catch {
+      // Fall through to the textarea fallback for web previews.
+    }
+  }
+
+  if (typeof document === 'undefined') {
+    return false;
+  }
+
+  const textarea = document.createElement('textarea');
+  textarea.value = message;
+  textarea.setAttribute('readonly', '');
+  textarea.style.position = 'fixed';
+  textarea.style.left = '-9999px';
+  textarea.style.top = '0';
+  document.body.appendChild(textarea);
+  textarea.select();
+
+  try {
+    return document.execCommand('copy');
+  } catch {
+    return false;
+  } finally {
+    document.body.removeChild(textarea);
+  }
+}
+
+function showWebInviteMessage(title: string, message: string) {
+  if (typeof window !== 'undefined' && typeof window.alert === 'function') {
+    window.alert(`${title}\n\n${message}`);
+  }
+}
 
 const cardShadow = Platform.select({
   web: { boxShadow: '0 18px 36px rgba(255, 138, 91, 0.14)' },
@@ -161,11 +196,47 @@ const softShadow = Platform.select({
 });
 
 export function GroupsScreen() {
+  const { invite } = useLocalSearchParams<{ invite?: string | string[] }>();
   const [selectedGroup, setSelectedGroup] = useState<PrayerGroup | undefined>();
-  const [groupList, setGroupList] = useState<PrayerGroup[]>(initialGroups);
+  const [groupList, setGroupList] = useState<PrayerGroup[]>([]);
+  const [isLoadingGroups, setIsLoadingGroups] = useState(true);
+  const [groupLoadError, setGroupLoadError] = useState('');
+  const initialInviteCode = Array.isArray(invite) ? invite[0] : invite;
+
+  useEffect(() => {
+    let isMounted = true;
+
+    async function loadGroups() {
+      try {
+        setGroupLoadError('');
+        const groups = await fetchPersistedPrayerGroups();
+
+        if (isMounted) {
+          setGroupList(groups);
+        }
+      } catch (error) {
+        if (isMounted) {
+          setGroupLoadError(error instanceof Error ? error.message : 'Could not load groups.');
+        }
+      } finally {
+        if (isMounted) {
+          setIsLoadingGroups(false);
+        }
+      }
+    }
+
+    void loadGroups();
+
+    return () => {
+      isMounted = false;
+    };
+  }, []);
 
   function createGroup(group: PrayerGroup) {
-    setGroupList((current) => [group, ...current]);
+    setGroupList((current) => [
+      group,
+      ...current.filter((item) => item.id !== group.id),
+    ]);
     setSelectedGroup(group);
   }
 
@@ -173,40 +244,96 @@ export function GroupsScreen() {
     return <GroupDetailScreen group={selectedGroup} onBack={() => setSelectedGroup(undefined)} />;
   }
 
-  return <GroupListScreen groups={groupList} onCreateGroup={createGroup} onSelect={setSelectedGroup} />;
+  return (
+    <GroupListScreen
+      groups={groupList}
+      isLoading={isLoadingGroups}
+      loadError={groupLoadError}
+      initialInviteCode={initialInviteCode}
+      onCreateGroup={createGroup}
+      onSelect={setSelectedGroup}
+    />
+  );
 }
 
 function GroupListScreen({
   groups,
+  isLoading,
+  initialInviteCode,
+  loadError,
   onCreateGroup,
   onSelect,
 }: {
   groups: PrayerGroup[];
+  isLoading: boolean;
+  initialInviteCode?: string;
+  loadError: string;
   onCreateGroup: (group: PrayerGroup) => void;
   onSelect: (group: PrayerGroup) => void;
 }) {
   const [joinCode, setJoinCode] = useState('');
+  const [joinError, setJoinError] = useState('');
   const [joinVisible, setJoinVisible] = useState(false);
   const [createVisible, setCreateVisible] = useState(false);
   const [createStep, setCreateStep] = useState<CreateGroupStep>('setup');
   const [createName, setCreateName] = useState('');
   const [createCategory, setCreateCategory] = useState<GroupCategory>('church');
+  const [createInviteCode, setCreateInviteCode] = useState(() => generateInviteCode());
+  const [createError, setCreateError] = useState('');
+  const [isCreatingGroup, setIsCreatingGroup] = useState(false);
+  const [loginRequiredVisible, setLoginRequiredVisible] = useState(false);
+  const [loginRequiredError, setLoginRequiredError] = useState('');
 
-  function submitJoinCode() {
+  useEffect(() => {
+    if (!initialInviteCode) {
+      return;
+    }
+
+    setJoinCode(initialInviteCode);
+    setJoinVisible(true);
+  }, [initialInviteCode]);
+
+  async function submitJoinCode() {
     if (!joinCode.trim()) {
       return;
     }
 
-    setJoinVisible(false);
-    setJoinCode('');
-    onSelect(groups[0]);
+    try {
+      setJoinError('');
+      const joinedGroup = await joinPersistedPrayerGroup(joinCode);
+
+      setJoinVisible(false);
+      setJoinCode('');
+      onCreateGroup(joinedGroup);
+    } catch (error) {
+      setJoinError(error instanceof Error ? error.message : 'Unable to join this group.');
+    }
   }
 
-  function openCreateFlow() {
+  function startCreateFlow() {
     setCreateName('');
     setCreateCategory('church');
+    setCreateInviteCode(generateInviteCode());
+    setCreateError('');
     setCreateStep('setup');
     setCreateVisible(true);
+  }
+
+  async function openCreateFlow() {
+    try {
+      setLoginRequiredError('');
+      const user = await getCurrentSupabaseUser();
+
+      if (!user || user.is_anonymous) {
+        setLoginRequiredVisible(true);
+        return;
+      }
+
+      startCreateFlow();
+    } catch (error) {
+      setLoginRequiredError(error instanceof Error ? error.message : 'Please sign in before creating a group.');
+      setLoginRequiredVisible(true);
+    }
   }
 
   function closeCreateFlow() {
@@ -214,27 +341,41 @@ function GroupListScreen({
     setCreateStep('setup');
   }
 
-  function finishCreateFlow() {
+  async function finishCreateFlow() {
+    if (isCreatingGroup) {
+      return;
+    }
+
     const trimmedName = createName.trim();
     const groupName = trimmedName || 'New Prayer Group';
-    const categoryLabel =
-      groupCategoryOptions.find((category) => category.id === createCategory)?.label ?? 'Church';
 
-    setCreateVisible(false);
-    setCreateStep('setup');
-    setCreateName('');
-    setCreateCategory('church');
-    onCreateGroup({
-      id: `created-${Date.now()}`,
-      name: groupName,
-      subtitle: `${categoryLabel} prayer group`,
-      rhythm: `Invite code #${newGroupInviteCode}`,
-      updatedAgo: 'Created now',
-      memberCount: 1,
-      accent: '#DDEDF5',
-      members: ['gratitude', 'joy', 'ordinary', 'excitement'],
-      posts: [],
-    });
+    try {
+      setIsCreatingGroup(true);
+      setCreateError('');
+      const user = await getCurrentSupabaseUser();
+
+      if (!user || user.is_anonymous) {
+        setCreateVisible(false);
+        setLoginRequiredVisible(true);
+        return;
+      }
+
+      const createdGroup = await createPersistedPrayerGroup({
+        name: groupName,
+        category: createCategory,
+        invitationCode: createInviteCode,
+      });
+
+      setCreateVisible(false);
+      setCreateStep('setup');
+      setCreateName('');
+      setCreateCategory('church');
+      onCreateGroup(createdGroup);
+    } catch (error) {
+      setCreateError(error instanceof Error ? error.message : 'Unable to create this group.');
+    } finally {
+      setIsCreatingGroup(false);
+    }
   }
 
   return (
@@ -249,7 +390,9 @@ function GroupListScreen({
             accessibilityLabel="Join a group with invitation code"
             onPress={() => setJoinVisible(true)}
             style={({ pressed }) => [styles.quickActionRow, pressed && styles.pressed]}>
-            <MoodFace mood="excitement" size={40} />
+            <View style={styles.quickActionFaceIcon}>
+              <MoodFace mood="excitement" size={36} />
+            </View>
             <Text style={styles.joinText}>Join with invite code</Text>
             <Text style={styles.chevron}>&gt;</Text>
           </Pressable>
@@ -260,7 +403,7 @@ function GroupListScreen({
             onPress={openCreateFlow}
             style={({ pressed }) => [styles.quickActionRow, styles.createGroupRow, pressed && styles.pressed]}>
             <View style={styles.createIconBubble}>
-              <UtilityIcon type="plus" size={25} color="#FF8A5B" />
+              <UtilityIcon type="plus" size={31} color="#FF8A5B" />
             </View>
             <Text style={styles.joinText}>Create a group</Text>
             <Text style={styles.chevron}>&gt;</Text>
@@ -268,22 +411,33 @@ function GroupListScreen({
         </View>
 
         <View style={styles.groupStack}>
-          {groups.map((group, index) => (
-            <GroupListCard key={group.id} group={group} index={index} onPress={() => onSelect(group)} />
-          ))}
+          {isLoading ? (
+            <GroupStatusCard title="Loading groups" body="Checking your private prayer spaces." />
+          ) : loadError ? (
+            <GroupStatusCard title="Could not load groups" body={loadError} />
+          ) : groups.length === 0 ? (
+            <GroupStatusCard title="No groups yet" body="Create a private prayer space or join with an invite code." />
+          ) : (
+            groups.map((group, index) => (
+              <GroupListCard key={group.id} group={group} index={index} onPress={() => onSelect(group)} />
+            ))
+          )}
         </View>
       </ScrollView>
       <JoinGroupModal
         code={joinCode}
         onChangeCode={setJoinCode}
         onClose={() => setJoinVisible(false)}
+        error={joinError}
         onSubmit={submitJoinCode}
         visible={joinVisible}
       />
       <CreateGroupModal
         groupName={createName}
-        inviteCode={newGroupInviteCode}
+        inviteCode={createInviteCode}
         category={createCategory}
+        error={createError}
+        isSubmitting={isCreatingGroup}
         onChangeGroupName={setCreateName}
         onChangeCategory={setCreateCategory}
         onClose={closeCreateFlow}
@@ -291,6 +445,15 @@ function GroupListScreen({
         onNext={() => setCreateStep('code')}
         step={createStep}
         visible={createVisible}
+      />
+      <GroupLoginRequiredModal
+        error={loginRequiredError}
+        onAuthenticated={() => {
+          setLoginRequiredVisible(false);
+          startCreateFlow();
+        }}
+        onClose={() => setLoginRequiredVisible(false)}
+        visible={loginRequiredVisible}
       />
     </SafeAreaView>
   );
@@ -330,17 +493,28 @@ function GroupListCard({
   );
 }
 
+function GroupStatusCard({ body, title }: { body: string; title: string }) {
+  return (
+    <View style={styles.groupStatusCard}>
+      <Text style={styles.groupStatusTitle}>{title}</Text>
+      <Text style={styles.groupStatusBody}>{body}</Text>
+    </View>
+  );
+}
+
 function JoinGroupModal({
   code,
+  error,
   onChangeCode,
   onClose,
   onSubmit,
   visible,
 }: {
   code: string;
+  error?: string;
   onChangeCode: (value: string) => void;
   onClose: () => void;
-  onSubmit: () => void;
+  onSubmit: () => void | Promise<void>;
   visible: boolean;
 }) {
   const canSubmit = code.trim().length > 0;
@@ -381,6 +555,100 @@ function JoinGroupModal({
                 <UtilityIcon type="arrowRight" size={33} color="#FFFFFF" />
               </Pressable>
             </View>
+            {error ? <Text style={styles.modalErrorText}>{error}</Text> : null}
+          </View>
+        </SafeAreaView>
+      </View>
+    </Modal>
+  );
+}
+
+function GroupLoginRequiredModal({
+  error,
+  onAuthenticated,
+  onClose,
+  visible,
+}: {
+  error?: string;
+  onAuthenticated: () => void;
+  onClose: () => void;
+  visible: boolean;
+}) {
+  const [email, setEmail] = useState('');
+  const [password, setPassword] = useState('');
+  const [message, setMessage] = useState(error ?? '');
+  const [working, setWorking] = useState(false);
+
+  useEffect(() => {
+    if (visible) {
+      setMessage(error ?? '');
+    }
+  }, [error, visible]);
+
+  async function authenticate() {
+    setWorking(true);
+    setMessage('');
+
+    try {
+      await signInWithEmail({ email: email.trim(), password });
+      onAuthenticated();
+    } catch (authError) {
+      setMessage(authError instanceof Error ? authError.message : 'Unable to sign in.');
+    } finally {
+      setWorking(false);
+    }
+  }
+
+  return (
+    <Modal transparent animationType="fade" visible={visible} onRequestClose={onClose}>
+      <View style={styles.joinOverlay}>
+        <Pressable
+          accessibilityRole="button"
+          accessibilityLabel="Close sign in"
+          onPress={onClose}
+          style={styles.joinScrim}
+        />
+        <SafeAreaView pointerEvents="box-none" style={styles.joinSheetSafe}>
+          <View style={styles.loginSheet}>
+            <View style={styles.loginHandle} />
+            <Text style={styles.loginTitle}>Sign in to create a group</Text>
+            <Text style={styles.loginSubtitle}>Private prayer groups are tied to your account so members can see the same space later.</Text>
+            <TextInput
+              accessibilityLabel="Email"
+              autoCapitalize="none"
+              autoCorrect={false}
+              keyboardType="email-address"
+              onChangeText={setEmail}
+              placeholder="Email"
+              placeholderTextColor="rgba(42, 28, 19, 0.42)"
+              style={styles.loginInput}
+              textContentType="emailAddress"
+              value={email}
+            />
+            <TextInput
+              accessibilityLabel="Password"
+              autoCapitalize="none"
+              onChangeText={setPassword}
+              placeholder="Password"
+              placeholderTextColor="rgba(42, 28, 19, 0.42)"
+              secureTextEntry
+              style={styles.loginInput}
+              textContentType="password"
+              value={password}
+            />
+            <View style={styles.loginActionRow}>
+              <Pressable
+                accessibilityRole="button"
+                disabled={working}
+                onPress={() => authenticate()}
+                style={({ pressed }) => [styles.loginPrimaryButton, pressed && styles.pressed, working && styles.disabledLinkButton]}>
+                <Text style={styles.loginPrimaryText}>{working ? 'Signing in...' : 'Sign in'}</Text>
+              </Pressable>
+              <View style={styles.loginSecondaryInfo}>
+                <Text style={styles.loginSecondaryInfoText}>Create an account from the welcome sign-in screen.</Text>
+              </View>
+            </View>
+            {message ? <Text style={styles.modalErrorText}>{message}</Text> : null}
           </View>
         </SafeAreaView>
       </View>
@@ -390,8 +658,10 @@ function JoinGroupModal({
 
 function CreateGroupModal({
   category,
+  error,
   groupName,
   inviteCode,
+  isSubmitting,
   onChangeCategory,
   onChangeGroupName,
   onClose,
@@ -401,55 +671,27 @@ function CreateGroupModal({
   visible,
 }: {
   category: GroupCategory;
+  error?: string;
   groupName: string;
   inviteCode: string;
+  isSubmitting?: boolean;
   onChangeCategory: (value: GroupCategory) => void;
   onChangeGroupName: (value: string) => void;
   onClose: () => void;
-  onDone: () => void;
+  onDone: () => void | Promise<void>;
   onNext: () => void;
   step: CreateGroupStep;
   visible: boolean;
 }) {
   const displayName = groupName.trim() || 'New Prayer Group';
-  const inviteLink = `${inviteBaseUrl}?code=${encodeURIComponent(inviteCode)}`;
-  const inviteMessage = [
-    `You are invited to "${displayName}" on PrayBor.`,
-    'Share prayer requests and pray for one another in a private group.',
-    `Invite code: #${inviteCode}`,
-    `Join link: ${inviteLink}`,
-  ].join('\n');
+  const { message: inviteMessage, url: inviteLink } = buildInvitePayload(inviteCode);
 
   async function shareInvitation() {
-    try {
-      if (Platform.OS === 'web' && typeof navigator !== 'undefined' && navigator.share) {
-        await navigator.share({
-          title: `${displayName} PrayBor invite`,
-          text: inviteMessage,
-          url: inviteLink,
-        });
-        return;
-      }
-
-      await Share.share({
-        title: `${displayName} PrayBor invite`,
-        message: inviteMessage,
-        url: inviteLink,
-      });
-    } catch (shareError) {
-      const clipboard = typeof navigator !== 'undefined' ? navigator.clipboard : undefined;
-
-      if (clipboard?.writeText) {
-        await clipboard.writeText(inviteMessage);
-        Alert.alert('Invite copied', 'Sharing was not available, so the invite message was copied to your clipboard.');
-        return;
-      }
-
-      Alert.alert(
-        'Could not open sharing',
-        shareError instanceof Error ? shareError.message : 'Please try again in a moment.',
-      );
-    }
+    await shareInvite({
+      title: `${displayName} Blessie invite`,
+      message: inviteMessage,
+      url: inviteLink,
+    });
   }
 
   return (
@@ -523,9 +765,16 @@ function CreateGroupModal({
             <Pressable accessibilityRole="button" accessibilityLabel="Invite friends" onPress={shareInvitation} style={styles.codeLinkButton}>
               <Text style={styles.codeLinkText}>Invite friends -&gt;</Text>
             </Pressable>
-            <Pressable accessibilityRole="button" accessibilityLabel="Finish group creation" onPress={onDone} style={styles.codeLinkButton}>
-              <Text style={styles.codeLinkText}>Done -&gt;</Text>
+            <Pressable
+              accessibilityRole="button"
+              accessibilityLabel="Finish group creation"
+              accessibilityState={{ disabled: isSubmitting }}
+              disabled={isSubmitting}
+              onPress={onDone}
+              style={[styles.codeLinkButton, isSubmitting && styles.disabledLinkButton]}>
+              <Text style={styles.codeLinkText}>{isSubmitting ? 'Saving...' : 'Done ->'}</Text>
             </Pressable>
+            {error ? <Text style={styles.modalErrorText}>{error}</Text> : null}
           </View>
         )}
       </SafeAreaView>
@@ -535,30 +784,42 @@ function CreateGroupModal({
 
 function GroupDetailScreen({ group, onBack }: { group: PrayerGroup; onBack: () => void }) {
   const [composerVisible, setComposerVisible] = useState(false);
-  const [localPosts, setLocalPosts] = useState<PrayerCard[]>([]);
-  const [reactions, setReactions] = useState<PrayerReaction[]>(initialReactions);
-  const posts = useMemo(() => [...localPosts, ...group.posts], [group.posts, localPosts]);
+  const [posts, setPosts] = useState<PrayerCard[]>(group.posts);
+  const [reactions, setReactions] = useState<PrayerReaction[]>([]);
+  const [reportedPost, setReportedPost] = useState<PrayerCard | null>(null);
 
-  function createLocalPost(draft: PrayerDraft) {
-    setLocalPosts((current) => [
-      {
-        id: `group-local-${Date.now()}`,
-        title: draft.title,
-        body: draft.body,
-        mood: draft.mood,
-        visibility: 'group',
-        identity: draft.identity,
-        authorLabel: draft.identity === 'anonymous' ? 'Group member' : 'You',
-        groupName: group.name,
-        postedAgo: 'now',
-        paperColor: draft.paperColor,
-        pinSeed: draft.pinSeed,
-      },
-      ...current,
+  useEffect(() => {
+    let isMounted = true;
+
+    fetchPersistedPrayerCards('group', group.id).then(async (nextPosts) => {
+      const nextReactions = await fetchPersistedPrayerReactions(nextPosts.map((post) => post.id));
+
+      if (isMounted) {
+        setPosts(nextPosts.map((post) => ({ ...post, groupName: group.name })));
+        setReactions(nextReactions);
+      }
+    });
+
+    return () => {
+      isMounted = false;
+    };
+  }, [group.id, group.name]);
+
+  async function createGroupPost(draft: PrayerDraft) {
+    const createdPost = await createPersistedPrayerCard({
+      ...draft,
+      visibility: 'group',
+      groupId: group.id,
+    });
+
+    setPosts((current) => [
+      { ...createdPost, groupName: group.name },
+      ...current.filter((post) => post.id !== createdPost.id),
     ]);
+    recordTreeGrowthAction('prayer_posted', 'group', undefined, createdPost.id);
   }
 
-  function reactToPrayer(prayerId: string, type: ReactionType) {
+  async function reactToPrayer(prayerId: string, type: ReactionType) {
     setReactions((current) =>
       setPrayerReaction(current, {
         prayerId,
@@ -566,46 +827,63 @@ function GroupDetailScreen({ group, onBack }: { group: PrayerGroup; onBack: () =
         type,
       }),
     );
+
+    try {
+      const persistedReaction = await upsertPersistedPrayerReaction(prayerId, type);
+
+      setReactions((current) =>
+        setPrayerReaction(
+          current.filter((reaction) => !(reaction.prayerId === prayerId && reaction.userId === 'current-user')),
+          persistedReaction,
+        ),
+      );
+      recordTreeGrowthAction('reaction_given', 'group', undefined, prayerId);
+    } catch (error) {
+      console.warn('Could not save group prayer reaction to Supabase.', error);
+    }
+  }
+
+  async function reportGroupPrayer({
+    blockAuthor,
+    details,
+    reason,
+  }: {
+    blockAuthor: boolean;
+    details: string;
+    reason: PrayerReportReason;
+  }) {
+    if (!reportedPost) {
+      return;
+    }
+
+    await submitPrayerReport({
+      blockAuthor,
+      details,
+      prayerId: reportedPost.id,
+      reason,
+      reportedAuthorId: reportedPost.authorId,
+    });
+
+    setPosts((current) =>
+      current.filter((post) => {
+        if (post.id === reportedPost.id) {
+          return false;
+        }
+
+        return !blockAuthor || !reportedPost.authorId || post.authorId !== reportedPost.authorId;
+      }),
+    );
   }
 
   async function shareGroupInvite() {
-    const inviteLink = `${inviteBaseUrl}?code=${encodeURIComponent(newGroupInviteCode)}`;
-    const inviteMessage = [
-      `You are invited to "${group.name}" on PrayBor.`,
-      'Share prayer requests and pray for one another in a private group.',
-      `Invite code: #${newGroupInviteCode}`,
-      `Join link: ${inviteLink}`,
-    ].join('\n');
+    const inviteCode = group.invitationCode;
+    const { message: inviteMessage, url: inviteLink } = buildInvitePayload(inviteCode);
 
-    try {
-      if (Platform.OS === 'web' && typeof navigator !== 'undefined' && navigator.share) {
-        await navigator.share({
-          title: `${group.name} PrayBor invite`,
-          text: inviteMessage,
-          url: inviteLink,
-        });
-        return;
-      }
-
-      await Share.share({
-        title: `${group.name} PrayBor invite`,
-        message: inviteMessage,
-        url: inviteLink,
-      });
-    } catch (shareError) {
-      const clipboard = typeof navigator !== 'undefined' ? navigator.clipboard : undefined;
-
-      if (clipboard?.writeText) {
-        await clipboard.writeText(inviteMessage);
-        Alert.alert('Invite copied', 'Sharing was not available, so the invite message was copied to your clipboard.');
-        return;
-      }
-
-      Alert.alert(
-        'Could not open sharing',
-        shareError instanceof Error ? shareError.message : 'Please try again in a moment.',
-      );
-    }
+    await shareInvite({
+      title: `${group.name} Blessie invite`,
+      message: inviteMessage,
+      url: inviteLink,
+    });
   }
 
   return (
@@ -654,6 +932,7 @@ function GroupDetailScreen({ group, onBack }: { group: PrayerGroup; onBack: () =
             post={post}
             reactions={reactions.filter((reaction) => reaction.prayerId === post.id)}
             onReact={(type) => reactToPrayer(post.id, type)}
+            onReport={() => setReportedPost(post)}
           />
         ))}
 
@@ -670,8 +949,18 @@ function GroupDetailScreen({ group, onBack }: { group: PrayerGroup; onBack: () =
       <PrayerComposerSheet
         visible={composerVisible}
         defaultVisibility="group"
+        groupId={group.id}
         onClose={() => setComposerVisible(false)}
-        onCreate={createLocalPost}
+        onCreate={createGroupPost}
+      />
+
+      <PrayerReportModal
+        authorLabel={reportedPost?.authorLabel}
+        canBlockAuthor={Boolean(reportedPost?.authorId)}
+        onClose={() => setReportedPost(null)}
+        onSubmit={reportGroupPrayer}
+        prayerTitle={reportedPost?.title}
+        visible={Boolean(reportedPost)}
       />
     </SafeAreaView>
   );
@@ -680,11 +969,13 @@ function GroupDetailScreen({ group, onBack }: { group: PrayerGroup; onBack: () =
 function GroupPrayerNote({
   index,
   onReact,
+  onReport,
   post,
   reactions,
 }: {
   index: number;
   onReact: (type: ReactionType) => void;
+  onReport: () => void;
   post: PrayerCard;
   reactions: PrayerReaction[];
 }) {
@@ -693,6 +984,7 @@ function GroupPrayerNote({
   const paperColor = post.paperColor ?? groupPostItBackgrounds[index % groupPostItBackgrounds.length];
   const foldShade = getPostItFoldShade(paperColor);
   const foldSide = index % 2 === 0 ? 'right' : 'left';
+  const reactionTapeTheme = getMaskingTapeTheme(post.id, paperColor, 'group-reaction');
   const pinImage =
     typeof post.pinSeed === 'number'
       ? getPostItPinImage(post.pinSeed)
@@ -701,8 +993,6 @@ function GroupPrayerNote({
 
   return (
     <View
-      accessible
-      accessibilityLabel={`${post.authorLabel} prayer note. ${post.title}`}
       style={[
         styles.prayerNote,
         {
@@ -719,7 +1009,6 @@ function GroupPrayerNote({
       <View pointerEvents="none" style={styles.noteTopCrease} />
       <View pointerEvents="none" style={styles.noteLeftLift} />
       <View pointerEvents="none" style={styles.noteEdgeShade} />
-      <View pointerEvents="none" style={styles.noteUnderCurl} />
       <View pointerEvents="none" style={styles.noteBottomShade} />
       <View
         pointerEvents="none"
@@ -752,15 +1041,32 @@ function GroupPrayerNote({
           <Text style={styles.noteAuthor}>{post.authorLabel}</Text>
           <Text style={styles.noteMeta}>{post.postedAgo} - {mood.label}</Text>
         </View>
+        <Pressable
+          accessibilityRole="button"
+          accessibilityLabel="Report this prayer"
+          hitSlop={8}
+          onPress={onReport}
+          style={styles.noteReportButton}>
+          <UtilityIcon type="siren" size={18} color="#FF6628" />
+        </Pressable>
       </View>
-      <Text style={styles.noteTitle}>{post.title}</Text>
-      <Text style={styles.noteBodyText}>{post.body}</Text>
+      <Text style={styles.noteTitle}>{maskProfanityInText(post.title)}</Text>
+      <Text style={styles.noteBodyText}>{maskProfanityInText(post.body)}</Text>
+      <View style={styles.noteFooterSpacer} />
       <View style={styles.noteFooter}>
         <Pressable
           accessibilityRole="button"
           accessibilityLabel={`I prayed for you, ${prayerCount} prayer${prayerCount === 1 ? '' : 's'}`}
           onPress={() => onReact('prayer')}
-          style={({ pressed }) => [styles.notePrayedButton, pressed && styles.pressed]}>
+          style={({ pressed }) => [
+            styles.notePrayedButton,
+            {
+              backgroundColor: reactionTapeTheme.backgroundColor,
+              borderColor: reactionTapeTheme.borderColor,
+            },
+            pressed && styles.pressed,
+          ]}>
+          <MaskingTapeSurface theme={reactionTapeTheme} tearColor={paperColor} />
           <View style={styles.notePrayedIcon}>
             <AnimatedAsset assetKey="reaction_prayer" size={28} />
           </View>
@@ -860,26 +1166,34 @@ const styles = StyleSheet.create({
     ...softShadow,
   },
   quickActionStack: {
-    gap: 12,
-    marginBottom: 22,
+    gap: 0,
+    marginBottom: 10,
   },
   quickActionRow: {
-    minHeight: 76,
-    borderRadius: 28,
-    paddingHorizontal: 18,
+    minHeight: 60,
+    borderRadius: 24,
+    paddingHorizontal: 14,
     backgroundColor: '#FFFFFF',
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 10,
+    gap: 4,
     ...softShadow,
   },
   createGroupRow: {
     backgroundColor: '#FFF6F0',
+    marginTop: -4,
+  },
+  quickActionFaceIcon: {
+    width: 36,
+    height: 36,
+    alignItems: 'center',
+    justifyContent: 'center',
+    transform: [{ translateY: 1 }],
   },
   createIconBubble: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
+    width: 36,
+    height: 36,
+    borderRadius: 18,
     backgroundColor: '#FFFFFF',
     alignItems: 'center',
     justifyContent: 'center',
@@ -887,18 +1201,40 @@ const styles = StyleSheet.create({
   joinText: {
     flex: 1,
     color: colors.text,
-    fontSize: 21,
-    lineHeight: 27,
+    fontSize: 20,
+    lineHeight: 24,
     fontWeight: '900',
+    letterSpacing: -0.45,
   },
   chevron: {
     color: colors.accent,
-    fontSize: 34,
-    lineHeight: 36,
+    fontSize: 30,
+    lineHeight: 32,
     fontWeight: '900',
   },
   groupStack: {
     gap: 16,
+  },
+  groupStatusCard: {
+    minHeight: 132,
+    borderRadius: 28,
+    backgroundColor: '#FFF8F3',
+    padding: 22,
+    justifyContent: 'center',
+    ...softShadow,
+  },
+  groupStatusTitle: {
+    color: colors.text,
+    fontSize: 22,
+    lineHeight: 27,
+    fontWeight: '900',
+  },
+  groupStatusBody: {
+    marginTop: 8,
+    color: colors.textTertiary,
+    fontSize: 14,
+    lineHeight: 20,
+    fontWeight: '800',
   },
   groupCard: {
     minHeight: 158,
@@ -920,7 +1256,7 @@ const styles = StyleSheet.create({
   },
   groupSubtitle: {
     marginTop: 8,
-    color: colors.textSecondary,
+    color: colors.textTertiary,
     fontSize: 17,
     lineHeight: 23,
     fontWeight: '800',
@@ -932,7 +1268,7 @@ const styles = StyleSheet.create({
     gap: 10,
   },
   groupMeta: {
-    color: colors.textSecondary,
+    color: colors.textTertiary,
     fontSize: 13,
     fontWeight: '900',
   },
@@ -945,7 +1281,7 @@ const styles = StyleSheet.create({
   },
   joinOverlay: {
     flex: 1,
-    backgroundColor: 'rgba(10, 6, 0, 0.76)',
+    backgroundColor: 'rgba(42, 28, 19, 0.76)',
   },
   joinScrim: {
     ...StyleSheet.absoluteFillObject,
@@ -959,12 +1295,88 @@ const styles = StyleSheet.create({
     paddingBottom: Platform.select({ web: 104, default: 34 }),
     gap: 14,
   },
+  loginSheet: {
+    marginHorizontal: 20,
+    marginBottom: Platform.select({ web: 104, default: 28 }),
+    borderRadius: 30,
+    backgroundColor: '#FFFFFF',
+    paddingHorizontal: 22,
+    paddingTop: 12,
+    paddingBottom: 22,
+    gap: 12,
+    ...softShadow,
+  },
+  loginHandle: {
+    alignSelf: 'center',
+    width: 42,
+    height: 5,
+    borderRadius: 3,
+    backgroundColor: '#E8DED7',
+    marginBottom: 8,
+  },
+  loginTitle: {
+    color: colors.text,
+    fontSize: 21,
+    lineHeight: 27,
+    fontWeight: '900',
+  },
+  loginSubtitle: {
+    color: colors.textTertiary,
+    fontSize: 13,
+    lineHeight: 18,
+    fontWeight: '800',
+  },
+  loginInput: {
+    minHeight: 48,
+    borderRadius: 18,
+    backgroundColor: '#FFF8F3',
+    color: colors.text,
+    paddingHorizontal: 16,
+    fontSize: 15,
+    lineHeight: 20,
+    fontWeight: '800',
+  },
+  loginActionRow: {
+    flexDirection: 'row',
+    gap: 10,
+  },
+  loginPrimaryButton: {
+    flex: 1,
+    minHeight: 48,
+    borderRadius: 24,
+    backgroundColor: '#FF8A5B',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: 14,
+  },
+  loginPrimaryText: {
+    color: '#FFFFFF',
+    fontSize: 14,
+    lineHeight: 18,
+    fontWeight: '900',
+  },
+  loginSecondaryInfo: {
+    flex: 1,
+    minHeight: 48,
+    borderRadius: 24,
+    backgroundColor: '#FFF1CC',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: 14,
+  },
+  loginSecondaryInfoText: {
+    color: colors.text,
+    fontSize: 11,
+    lineHeight: 15,
+    fontWeight: '800',
+    textAlign: 'center',
+  },
   joinInfoCard: {
     minHeight: 86,
     borderRadius: 28,
     borderWidth: 2,
     borderColor: 'rgba(255, 255, 255, 0.20)',
-    backgroundColor: 'rgba(10, 6, 0, 0.88)',
+    backgroundColor: 'rgba(42, 28, 19, 0.88)',
     paddingHorizontal: 28,
     justifyContent: 'center',
   },
@@ -986,7 +1398,7 @@ const styles = StyleSheet.create({
     borderRadius: 30,
     borderWidth: 3,
     borderColor: '#FFFFFF',
-    backgroundColor: '#0A0600',
+    backgroundColor: '#2a1c13',
     paddingLeft: 26,
     paddingRight: 14,
     flexDirection: 'row',
@@ -1048,7 +1460,7 @@ const styles = StyleSheet.create({
     width: 58,
     height: 58,
     borderRadius: 29,
-    backgroundColor: '#0A0600',
+    backgroundColor: '#2a1c13',
     alignItems: 'center',
     justifyContent: 'center',
     ...softShadow,
@@ -1129,7 +1541,7 @@ const styles = StyleSheet.create({
     minHeight: 52,
     borderRadius: 18,
     borderWidth: 2,
-    borderColor: 'rgba(10, 6, 0, 0.24)',
+    borderColor: 'rgba(42, 28, 19, 0.24)',
     backgroundColor: '#FFF8F3',
     alignItems: 'center',
     justifyContent: 'center',
@@ -1179,6 +1591,15 @@ const styles = StyleSheet.create({
     color: colors.text,
     fontSize: 24,
     lineHeight: 32,
+    fontWeight: '900',
+  },
+  disabledLinkButton: {
+    opacity: 0.5,
+  },
+  modalErrorText: {
+    color: '#D43D3D',
+    fontSize: 13,
+    lineHeight: 18,
     fontWeight: '900',
   },
   detailHeader: {
@@ -1271,7 +1692,7 @@ const styles = StyleSheet.create({
   },
   groupHeroText: {
     marginTop: 8,
-    color: colors.textSecondary,
+    color: colors.textTertiary,
     fontSize: 16,
     lineHeight: 22,
     fontWeight: '800',
@@ -1292,7 +1713,7 @@ const styles = StyleSheet.create({
     fontWeight: '900',
   },
   heroBadgeLabel: {
-    color: colors.textSecondary,
+    color: colors.textTertiary,
     fontSize: 12,
     fontWeight: '900',
   },
@@ -1304,6 +1725,7 @@ const styles = StyleSheet.create({
     padding: 26,
     paddingTop: 36,
     overflow: 'visible',
+    flexGrow: 1,
     ...cardShadow,
   },
   noteFloatingShadow: {
@@ -1313,7 +1735,7 @@ const styles = StyleSheet.create({
     bottom: -17,
     height: 46,
     borderRadius: 999,
-    backgroundColor: 'rgba(10, 6, 0, 0.18)',
+    backgroundColor: 'rgba(42, 28, 19, 0.18)',
     opacity: 0.25,
     transform: [{ scaleY: 0.34 }, { rotate: '-1deg' }],
   },
@@ -1354,7 +1776,7 @@ const styles = StyleSheet.create({
     height: 42,
     borderTopLeftRadius: 8,
     borderTopRightRadius: 8,
-    backgroundColor: 'rgba(10, 6, 0, 0.052)',
+    backgroundColor: 'rgba(42, 28, 19, 0.052)',
   },
   noteSurfaceWash: {
     position: 'absolute',
@@ -1384,7 +1806,7 @@ const styles = StyleSheet.create({
     left: 18,
     right: 18,
     height: 1,
-    backgroundColor: 'rgba(10, 6, 0, 0.055)',
+    backgroundColor: 'rgba(42, 28, 19, 0.055)',
   },
   noteEdgeShade: {
     position: 'absolute',
@@ -1393,7 +1815,7 @@ const styles = StyleSheet.create({
     bottom: 14,
     width: 26,
     borderBottomRightRadius: 18,
-    backgroundColor: 'rgba(10, 6, 0, 0.045)',
+    backgroundColor: 'rgba(42, 28, 19, 0.045)',
   },
   noteLeftLift: {
     position: 'absolute',
@@ -1404,17 +1826,6 @@ const styles = StyleSheet.create({
     borderBottomLeftRadius: 14,
     backgroundColor: 'rgba(255,255,255,0.12)',
   },
-  noteUnderCurl: {
-    position: 'absolute',
-    left: 24,
-    right: 14,
-    bottom: -11,
-    height: 26,
-    borderRadius: 999,
-    backgroundColor: 'rgba(10, 6, 0, 0.16)',
-    opacity: 0.22,
-    transform: [{ scaleY: 0.3 }, { rotate: '-1.2deg' }],
-  },
   noteBottomShade: {
     position: 'absolute',
     left: 0,
@@ -1423,14 +1834,14 @@ const styles = StyleSheet.create({
     height: 30,
     borderBottomLeftRadius: 8,
     borderBottomRightRadius: 8,
-    backgroundColor: 'rgba(10, 6, 0, 0.048)',
+    backgroundColor: 'rgba(42, 28, 19, 0.048)',
   },
   noteFoldShadow: {
     position: 'absolute',
     bottom: -4,
     width: 52,
     height: 52,
-    backgroundColor: 'rgba(10, 6, 0, 0.16)',
+    backgroundColor: 'rgba(42, 28, 19, 0.16)',
     opacity: 0.2,
     transform: [{ skewX: '-12deg' }],
   },
@@ -1463,6 +1874,16 @@ const styles = StyleSheet.create({
   noteAuthorBlock: {
     flex: 1,
   },
+  noteReportButton: {
+    alignItems: 'center',
+    backgroundColor: 'rgba(255, 255, 255, 0.58)',
+    borderColor: 'rgba(255, 102, 40, 0.18)',
+    borderRadius: 18,
+    borderWidth: 1,
+    height: 36,
+    justifyContent: 'center',
+    width: 36,
+  },
   noteAuthor: {
     color: colors.text,
     fontSize: 16,
@@ -1471,7 +1892,7 @@ const styles = StyleSheet.create({
   },
   noteMeta: {
     marginTop: 2,
-    color: colors.textSecondary,
+    color: colors.textTertiary,
     fontSize: 13,
     lineHeight: 17,
     fontWeight: '800',
@@ -1492,23 +1913,31 @@ const styles = StyleSheet.create({
     fontWeight: '800',
     zIndex: 2,
   },
+  noteFooterSpacer: {
+    flexGrow: 1,
+    minHeight: 24,
+  },
   noteFooter: {
-    marginTop: 22,
+    marginTop: 0,
+    marginHorizontal: -10,
     zIndex: 2,
   },
   notePrayedButton: {
     minHeight: 60,
     width: '100%',
-    borderRadius: 20,
-    borderWidth: 1,
-    borderColor: 'rgba(255, 138, 91, 0.24)',
+    borderRadius: 0,
+    borderWidth: 0,
+    borderColor: 'rgba(255, 102, 40, 0.26)',
     paddingVertical: 12,
     paddingHorizontal: 14,
-    backgroundColor: 'rgba(255,255,255,0.68)',
+    backgroundColor: 'rgba(255, 220, 202, 0.78)',
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
     gap: 10,
+    position: 'relative',
+    overflow: 'hidden',
+    transform: [{ rotate: '-0.7deg' }],
   },
   notePrayedIcon: {
     width: 34,
@@ -1517,6 +1946,7 @@ const styles = StyleSheet.create({
     backgroundColor: 'rgba(255, 138, 91, 0.14)',
     alignItems: 'center',
     justifyContent: 'center',
+    zIndex: 2,
   },
   notePrayedLabel: {
     flex: 1,
@@ -1524,6 +1954,7 @@ const styles = StyleSheet.create({
     fontSize: 18,
     lineHeight: 23,
     fontWeight: '900',
+    zIndex: 2,
   },
   notePrayedCountPill: {
     minWidth: 38,
@@ -1533,6 +1964,7 @@ const styles = StyleSheet.create({
     backgroundColor: '#FF8A5B',
     alignItems: 'center',
     justifyContent: 'center',
+    zIndex: 2,
   },
   notePrayedCount: {
     color: '#FFFFFF',

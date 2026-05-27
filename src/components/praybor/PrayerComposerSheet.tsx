@@ -34,6 +34,7 @@ import {
 type PrayerComposerSheetProps = {
   visible: boolean;
   defaultVisibility: 'public' | 'group';
+  groupId?: string;
   onClose: () => void;
   onCreate: (draft: PrayerDraft) => void | Promise<void>;
 };
@@ -52,10 +53,10 @@ const floatingPanelShadow = Platform.select({
 const noteShadow = Platform.select({
   web: {
     boxShadow:
-      '0 26px 30px rgba(10, 6, 0, 0.14), 12px 18px 20px rgba(10, 6, 0, 0.10), -8px 18px 16px rgba(10, 6, 0, 0.06), 0 2px 0 rgba(255, 255, 255, 0.34) inset',
+      '0 26px 30px rgba(42, 28, 19, 0.14), 12px 18px 20px rgba(42, 28, 19, 0.10), -8px 18px 16px rgba(42, 28, 19, 0.06), 0 2px 0 rgba(255, 255, 255, 0.34) inset',
   },
   default: {
-    shadowColor: '#0A0600',
+    shadowColor: '#2a1c13',
     shadowOpacity: 0.15,
     shadowRadius: 24,
     shadowOffset: { width: 8, height: 16 },
@@ -108,9 +109,9 @@ const categoryStickerColors: Record<string, string> = {
 };
 
 const stickerShadow = Platform.select({
-  web: { boxShadow: '0 7px 12px rgba(10, 6, 0, 0.08), 0 1px 0 rgba(255, 255, 255, 0.35) inset' },
+  web: { boxShadow: '0 7px 12px rgba(42, 28, 19, 0.08), 0 1px 0 rgba(255, 255, 255, 0.35) inset' },
   default: {
-    shadowColor: '#0A0600',
+    shadowColor: '#2a1c13',
     shadowOpacity: 0.08,
     shadowRadius: 9,
     shadowOffset: { width: 0, height: 5 },
@@ -479,6 +480,7 @@ const situationCategories = Array.from(
 export function PrayerComposerSheet({
   visible,
   defaultVisibility,
+  groupId,
   onClose,
   onCreate,
 }: PrayerComposerSheetProps) {
@@ -644,6 +646,7 @@ export function PrayerComposerSheet({
         mood,
         visibility: defaultVisibility,
         identity,
+        groupId,
         paperColor: noteColor,
         pinSeed: notePinSeed,
       });
@@ -667,11 +670,13 @@ export function PrayerComposerSheet({
     <Modal visible={visible} animationType="slide" presentationStyle="fullScreen" onRequestClose={onClose}>
       <SafeAreaView style={styles.safeArea}>
         <View style={styles.topBar}>
-          <Pressable accessibilityRole="button" accessibilityLabel="Close prayer composer" onPress={onClose} style={styles.backTag}>
-            <UtilityIcon type="back" size={20} color="#FFFFFF" />
-          </Pressable>
-          <Pressable accessibilityRole="button" accessibilityLabel="Close prayer composer" onPress={onClose} style={styles.closeButton}>
-            <UtilityIcon type="close" size={24} />
+          <Pressable
+            accessibilityRole="button"
+            accessibilityLabel="Back from prayer composer"
+            hitSlop={8}
+            onPress={onClose}
+            style={styles.backTag}>
+            <UtilityIcon type="back" size={20} color="#2a1c13" />
           </Pressable>
         </View>
 
@@ -699,8 +704,6 @@ export function PrayerComposerSheet({
               <View pointerEvents="none" style={styles.previewFiberTop} />
               <View pointerEvents="none" style={styles.previewLeftLift} />
               <View pointerEvents="none" style={styles.previewEdgeShade} />
-              <View pointerEvents="none" style={styles.previewLowerLift} />
-              <View pointerEvents="none" style={styles.previewUnderCurl} />
               <View pointerEvents="none" style={styles.previewBottomShade} />
               <View pointerEvents="none" style={[styles.previewFoldShadow, foldSideStyles.shadow]} />
               <View pointerEvents="none" style={[styles.previewFold, foldSideStyles.fold]}>
@@ -827,7 +830,7 @@ export function PrayerComposerSheet({
                             styles.situationCategoryChevron,
                             expanded && styles.situationCategoryChevronExpanded,
                           ]}>
-                          <UtilityIcon type="chevronDown" size={18} color="#0A0600" />
+                          <UtilityIcon type="chevronDown" size={18} color="#2a1c13" />
                         </View>
                       </Pressable>
 
@@ -858,12 +861,9 @@ export function PrayerComposerSheet({
             {error ? <Text style={styles.errorText}>{error}</Text> : null}
 
             <View style={styles.actionRow}>
-              <ActionButton icon="link" label="Copy link" />
-              <ActionButton icon="share" label="Share" />
-              <ActionButton icon="draw" label="Draw" />
               <ActionButton
-                icon="save"
-                label={isSubmitting ? 'Saving' : 'Save'}
+                icon="share"
+                label={isSubmitting ? 'Sharing...' : 'Share my prayer request'}
                 onPress={submit}
                 disabled={!canPost || isSubmitting}
                 primary
@@ -1113,7 +1113,7 @@ function ActionButton({
   primary,
 }: {
   disabled?: boolean;
-  icon: 'link' | 'share' | 'draw' | 'save';
+  icon: 'share' | 'save';
   label: string;
   onPress?: () => void;
   primary?: boolean;
@@ -1125,7 +1125,7 @@ function ActionButton({
       disabled={disabled}
       onPress={onPress}
       style={[styles.actionButton, primary && styles.actionButtonPrimary, disabled && styles.actionButtonDisabled]}>
-      {icon === 'save' ? <ReactionIcon type="review" size={20} color={primary ? '#FFFFFF' : '#0A0600'} /> : <UtilityIcon type={icon} size={20} color={primary ? '#FFFFFF' : '#0A0600'} />}
+      {icon === 'save' ? <ReactionIcon type="review" size={20} color="#2a1c13" /> : <UtilityIcon type={icon} size={22} color="#2a1c13" />}
       <Text style={[styles.actionText, primary && styles.actionTextPrimary]}>{label}</Text>
     </Pressable>
   );
@@ -1178,7 +1178,7 @@ const styles = StyleSheet.create({
     bottom: 2,
     height: 42,
     borderRadius: 999,
-    backgroundColor: 'rgba(10, 6, 0, 0.18)',
+    backgroundColor: 'rgba(42, 28, 19, 0.18)',
     opacity: 0.28,
     transform: [{ scaleY: 0.32 }, { rotate: '-1deg' }],
   },
@@ -1236,7 +1236,7 @@ const styles = StyleSheet.create({
     height: 38,
     borderTopLeftRadius: 7,
     borderTopRightRadius: 7,
-    backgroundColor: 'rgba(10, 6, 0, 0.055)',
+    backgroundColor: 'rgba(42, 28, 19, 0.055)',
   },
   previewSurfaceWash: {
     position: 'absolute',
@@ -1255,7 +1255,7 @@ const styles = StyleSheet.create({
     left: 16,
     right: 16,
     height: 1,
-    backgroundColor: 'rgba(10, 6, 0, 0.055)',
+    backgroundColor: 'rgba(42, 28, 19, 0.055)',
   },
   previewFiberTop: {
     position: 'absolute',
@@ -1274,7 +1274,7 @@ const styles = StyleSheet.create({
     bottom: 14,
     width: 20,
     borderBottomRightRadius: 16,
-    backgroundColor: 'rgba(10, 6, 0, 0.043)',
+    backgroundColor: 'rgba(42, 28, 19, 0.043)',
   },
   previewLeftLift: {
     position: 'absolute',
@@ -1285,28 +1285,6 @@ const styles = StyleSheet.create({
     borderBottomLeftRadius: 12,
     backgroundColor: 'rgba(255, 255, 255, 0.12)',
   },
-  previewLowerLift: {
-    position: 'absolute',
-    left: 16,
-    right: 22,
-    bottom: -4,
-    height: 29,
-    borderRadius: 999,
-    backgroundColor: 'rgba(10, 6, 0, 0.13)',
-    opacity: 0.2,
-    transform: [{ scaleY: 0.32 }, { rotate: '-1deg' }],
-  },
-  previewUnderCurl: {
-    position: 'absolute',
-    left: 28,
-    right: 8,
-    bottom: -10,
-    height: 24,
-    borderRadius: 999,
-    backgroundColor: 'rgba(10, 6, 0, 0.16)',
-    opacity: 0.2,
-    transform: [{ scaleY: 0.28 }, { rotate: '-1.2deg' }],
-  },
   previewBottomShade: {
     position: 'absolute',
     left: 0,
@@ -1315,14 +1293,14 @@ const styles = StyleSheet.create({
     height: 28,
     borderBottomLeftRadius: 7,
     borderBottomRightRadius: 7,
-    backgroundColor: 'rgba(10, 6, 0, 0.048)',
+    backgroundColor: 'rgba(42, 28, 19, 0.048)',
   },
   previewFoldShadow: {
     position: 'absolute',
     bottom: -4,
     width: 48,
     height: 48,
-    backgroundColor: 'rgba(10, 6, 0, 0.16)',
+    backgroundColor: 'rgba(42, 28, 19, 0.16)',
     opacity: 0.2,
     transform: [{ skewX: '-12deg' }],
   },
@@ -1355,13 +1333,13 @@ const styles = StyleSheet.create({
     borderRadius: 20,
     borderWidth: 2,
     borderStyle: 'dashed',
-    borderColor: 'rgba(10, 6, 0, 0.22)',
+    borderColor: 'rgba(42, 28, 19, 0.22)',
     backgroundColor: 'rgba(255, 255, 255, 0.5)',
     alignItems: 'center',
     justifyContent: 'center',
   },
   dropHintText: {
-    color: '#0A0600',
+    color: '#2a1c13',
     fontSize: 12,
     lineHeight: 15,
     fontWeight: '900',
@@ -1371,7 +1349,7 @@ const styles = StyleSheet.create({
     fontSize: 16,
     lineHeight: 21,
     fontWeight: '800',
-    color: '#0A0600',
+    color: '#2a1c13',
   },
   noteBodyInput: {
     minHeight: 126,
@@ -1379,7 +1357,7 @@ const styles = StyleSheet.create({
     fontSize: 16,
     lineHeight: 23,
     fontWeight: '700',
-    color: '#0A0600',
+    color: '#2a1c13',
   },
   bottomPanel: {
     maxHeight: 390,
@@ -1397,14 +1375,14 @@ const styles = StyleSheet.create({
     gap: 7,
   },
   sectionLabel: {
-    color: '#736C67',
+    color: '#69543a',
     fontSize: 13,
     lineHeight: 16,
     fontWeight: '900',
   },
   sectionHint: {
     marginTop: -3,
-    color: '#736C67',
+    color: '#69543a',
     fontSize: 12,
     lineHeight: 15,
     fontWeight: '800',
@@ -1423,7 +1401,7 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   selectedMoodLabel: {
-    color: '#0A0600',
+    color: '#2a1c13',
     fontSize: 14,
     lineHeight: 19,
     fontWeight: '900',
@@ -1448,7 +1426,7 @@ const styles = StyleSheet.create({
     backgroundColor: '#FF8A5B',
   },
   identityButtonText: {
-    color: '#0A0600',
+    color: '#2a1c13',
     fontSize: 13,
     lineHeight: 17,
     fontWeight: '900',
@@ -1487,14 +1465,14 @@ const styles = StyleSheet.create({
     minWidth: 0,
   },
   situationCategoryLabel: {
-    color: '#0A0600',
+    color: '#2a1c13',
     fontSize: 13,
     lineHeight: 17,
     fontWeight: '900',
   },
   situationCategoryMeta: {
     marginTop: 2,
-    color: '#736C67',
+    color: '#69543a',
     fontSize: 11,
     lineHeight: 14,
     fontWeight: '800',
@@ -1542,7 +1520,7 @@ const styles = StyleSheet.create({
     left: '58%',
     width: 2,
     borderRadius: 2,
-    backgroundColor: 'rgba(10, 6, 0, 0.07)',
+    backgroundColor: 'rgba(42, 28, 19, 0.07)',
     transform: [{ rotate: '-8deg' }],
   },
   situationTapeSoftCrease: {
@@ -1572,14 +1550,14 @@ const styles = StyleSheet.create({
     transform: [{ rotate: '-7deg' }],
   },
   situationChipText: {
-    color: '#0A0600',
+    color: '#2a1c13',
     fontSize: 13,
     lineHeight: 16,
     fontWeight: '900',
     textAlign: 'center',
   },
   situationChipTextSelected: {
-    color: '#0A0600',
+    color: '#2a1c13',
   },
   dragGhost: {
     position: 'absolute',
@@ -1594,11 +1572,11 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     borderWidth: 1,
-    borderColor: 'rgba(10, 6, 0, 0.10)',
+    borderColor: 'rgba(42, 28, 19, 0.10)',
     ...noteShadow,
   },
   dragGhostText: {
-    color: '#0A0600',
+    color: '#2a1c13',
     fontSize: 13,
     lineHeight: 17,
     fontWeight: '900',
@@ -1647,22 +1625,23 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   collaborationText: {
-    color: '#0A0600',
+    color: '#2a1c13',
     fontSize: 12,
     fontWeight: '900',
   },
   actionRow: {
     flexDirection: 'row',
-    gap: 6,
+    gap: 0,
   },
   actionButton: {
     flex: 1,
-    minHeight: 51,
-    borderRadius: 14,
+    minHeight: 58,
+    borderRadius: 21,
     backgroundColor: '#FFF4EC',
     alignItems: 'center',
     justifyContent: 'center',
-    gap: 4,
+    flexDirection: 'row',
+    gap: 9,
   },
   actionButtonPrimary: {
     backgroundColor: '#FF8A5B',
@@ -1671,12 +1650,13 @@ const styles = StyleSheet.create({
     opacity: 0.45,
   },
   actionText: {
-    color: '#0A0600',
-    fontSize: 10,
+    color: '#2a1c13',
+    fontSize: 15,
+    lineHeight: 19,
     fontWeight: '900',
   },
   actionTextPrimary: {
-    color: '#FFFFFF',
+    color: '#2a1c13',
   },
   errorText: {
     color: '#D43D3D',
@@ -1701,7 +1681,7 @@ const styles = StyleSheet.create({
     backgroundColor: 'rgba(255, 255, 255, 0.21)',
   },
   tapeFiber2: {
-    backgroundColor: 'rgba(10, 6, 0, 0.025)',
+    backgroundColor: 'rgba(42, 28, 19, 0.025)',
   },
   tapeFiber3: {
     backgroundColor: 'rgba(255, 255, 255, 0.09)',

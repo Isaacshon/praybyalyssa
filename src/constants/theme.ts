@@ -7,13 +7,20 @@ import '@/global.css';
 
 import { Platform } from 'react-native';
 
+export const TextColors = {
+  primary: '#2a1c13',
+  secondary: '#513c25',
+  tertiary: '#69543a',
+} as const;
+
 export const Colors = {
   light: {
-    text: '#0A0600',
+    text: TextColors.primary,
     background: '#F7F7F2',
     backgroundElement: '#FFFFFF',
     backgroundSelected: '#ECECE4',
-    textSecondary: '#736C67',
+    textSecondary: TextColors.secondary,
+    textTertiary: TextColors.tertiary,
     tint: '#FF8A5B',
     accent: '#FF8A5B',
     softBlue: '#FFF1EA',
@@ -21,16 +28,17 @@ export const Colors = {
     cardShadow: '#D98E73',
   },
   dark: {
-    text: '#FCEADE',
-    background: '#0A0600',
-    backgroundElement: '#173C40',
-    backgroundSelected: '#264C50',
-    textSecondary: '#E4CFC1',
+    text: TextColors.primary,
+    background: '#F7F7F2',
+    backgroundElement: '#FFFFFF',
+    backgroundSelected: '#ECECE4',
+    textSecondary: TextColors.secondary,
+    textTertiary: TextColors.tertiary,
     tint: '#FF8A5B',
     accent: '#FF8A5B',
-    softBlue: '#3B2A24',
-    softGreen: '#2B463F',
-    cardShadow: '#0A0600',
+    softBlue: '#FFF1EA',
+    softGreen: '#F6F2EA',
+    cardShadow: '#D98E73',
   },
 } as const;
 
@@ -38,8 +46,7 @@ export type ThemeColor = keyof typeof Colors.light & keyof typeof Colors.dark;
 
 export const Fonts = Platform.select({
   ios: {
-    /** iOS `UIFontDescriptorSystemDesignDefault` */
-    sans: 'system-ui',
+    sans: 'Pretendard',
     /** iOS `UIFontDescriptorSystemDesignSerif` */
     serif: 'ui-serif',
     /** iOS `UIFontDescriptorSystemDesignRounded` */
@@ -48,13 +55,13 @@ export const Fonts = Platform.select({
     mono: 'ui-monospace',
   },
   default: {
-    sans: 'normal',
+    sans: 'Pretendard',
     serif: 'serif',
     rounded: 'normal',
     mono: 'monospace',
   },
   web: {
-    sans: 'var(--font-display)',
+    sans: 'Pretendard',
     serif: 'var(--font-serif)',
     rounded: 'var(--font-rounded)',
     mono: 'var(--font-mono)',

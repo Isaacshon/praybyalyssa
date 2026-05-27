@@ -66,6 +66,7 @@ export type ActiveTree = {
   speciesId: string;
   growthPoints: number;
   startedAt: string;
+  growthEvents?: TreeGrowthEvent[];
 };
 
 export type TreeCollectionEntry = ActiveTree & {
@@ -75,14 +76,15 @@ export type TreeCollectionEntry = ActiveTree & {
 export type TreeGrowthEvent = {
   type: TreeGrowthEventType;
   occurredOn: string;
+  visibility?: PrayerVisibility;
 };
 
-export const COMPLETE_GROWTH_POINTS = 100;
+export const COMPLETE_GROWTH_POINTS = 7;
 
 export const GROWTH_EVENT_POINTS: Record<TreeGrowthEventType, number> = {
-  prayer_posted: 5,
-  reaction_given: 10,
-  recap_completed: 5,
+  prayer_posted: 1,
+  reaction_given: 1,
+  recap_completed: 0,
 };
 
 export const MOODS: MoodOption[] = [
@@ -99,14 +101,23 @@ export const MOODS: MoodOption[] = [
 ];
 
 export const TREE_SPECIES: TreeSpecies[] = [
+  { id: 'plum', label: 'Plum Tree', fruitLabel: 'plum', rarity: 'uncommon' },
+  { id: 'cherry', label: 'Cherry Tree', fruitLabel: 'cherry', rarity: 'common' },
+  { id: 'olive', label: 'Olive Tree', fruitLabel: 'olive', rarity: 'uncommon' },
+  { id: 'orange', label: 'Orange Tree', fruitLabel: 'orange', rarity: 'common' },
+  { id: 'palm', label: 'Palm Tree', fruitLabel: 'coconut', rarity: 'rare' },
+  { id: 'avocado', label: 'Avocado Tree', fruitLabel: 'avocado', rarity: 'uncommon' },
+  { id: 'almond', label: 'Almond Tree', fruitLabel: 'almond', rarity: 'uncommon' },
+  { id: 'pomegranate', label: 'Pomegranate Tree', fruitLabel: 'pomegranate', rarity: 'rare' },
+  { id: 'apricot', label: 'Apricot Tree', fruitLabel: 'apricot', rarity: 'uncommon' },
   { id: 'apple', label: 'Apple Tree', fruitLabel: 'apple', rarity: 'common' },
+  { id: 'loquat', label: 'Loquat Tree', fruitLabel: 'loquat', rarity: 'rare' },
+  { id: 'peach', label: 'Peach Tree', fruitLabel: 'peach', rarity: 'common' },
   { id: 'pear', label: 'Pear Tree', fruitLabel: 'pear', rarity: 'common' },
-  { id: 'grape_vine', label: 'Grape Vine', fruitLabel: 'grape cluster', rarity: 'uncommon' },
-  { id: 'cedar', label: 'Cedar', fruitLabel: 'cone', rarity: 'rare' },
-  { id: 'baobab', label: 'Baobab', fruitLabel: 'baobab fruit', rarity: 'rare' },
-  { id: 'walnut', label: 'Walnut Tree', fruitLabel: 'walnut', rarity: 'uncommon' },
-  { id: 'cherry_blossom', label: 'Cherry Blossom', fruitLabel: 'blossom', rarity: 'rare' },
-  { id: 'ginkgo', label: 'Ginkgo', fruitLabel: 'golden leaf', rarity: 'uncommon' },
+  { id: 'chestnut', label: 'Chestnut Tree', fruitLabel: 'chestnut', rarity: 'uncommon' },
+  { id: 'mango', label: 'Mango Tree', fruitLabel: 'mango', rarity: 'common' },
+  { id: 'guava', label: 'Guava Tree', fruitLabel: 'guava', rarity: 'uncommon' },
+  { id: 'persimmon', label: 'Persimmon Tree', fruitLabel: 'persimmon', rarity: 'common' },
 ];
 
 export function createPrayerDraft(input: PrayerDraftInput): PrayerDraft {
@@ -140,6 +151,17 @@ export function setPrayerReaction(
 }
 
 export function addGrowthEvent<TTree extends ActiveTree>(tree: TTree, event: TreeGrowthEvent): TTree {
+  if (event.type === 'recap_completed') {
+    return tree;
+  }
+
+  const occurredOn = event.occurredOn.slice(0, 10);
+  const previousGrowthDates = new Set((tree.growthEvents ?? []).map((growthEvent) => growthEvent.occurredOn.slice(0, 10)));
+
+  if (previousGrowthDates.has(occurredOn)) {
+    return tree;
+  }
+
   const growthPoints = Math.min(
     COMPLETE_GROWTH_POINTS,
     tree.growthPoints + GROWTH_EVENT_POINTS[event.type],
@@ -148,6 +170,7 @@ export function addGrowthEvent<TTree extends ActiveTree>(tree: TTree, event: Tre
   return {
     ...tree,
     growthPoints,
+    growthEvents: [...(tree.growthEvents ?? []), { ...event, occurredOn }],
   };
 }
 
@@ -155,16 +178,16 @@ export function getGrowthStage(growthPoints: number): TreeGrowthStage {
   if (growthPoints >= COMPLETE_GROWTH_POINTS) {
     return 'completed';
   }
-  if (growthPoints >= 80) {
+  if (growthPoints >= 6) {
     return 'fruiting_tree';
   }
-  if (growthPoints >= 60) {
+  if (growthPoints >= 5) {
     return 'young_tree';
   }
-  if (growthPoints >= 30) {
+  if (growthPoints >= 3) {
     return 'small_plant';
   }
-  if (growthPoints >= 15) {
+  if (growthPoints >= 1) {
     return 'sprout';
   }
   return 'seed';
@@ -176,7 +199,7 @@ export function completeActiveTree(
   nextSpeciesIndex: number,
 ) {
   if (tree.growthPoints < COMPLETE_GROWTH_POINTS) {
-    throw new Error('A tree must reach 100 growth points before it can be planted in the forest.');
+    throw new Error('A tree must complete its 7 day growth cycle before it can be planted in the forest.');
   }
   if (species.length === 0) {
     throw new Error('At least one tree species is required to create the next seed.');

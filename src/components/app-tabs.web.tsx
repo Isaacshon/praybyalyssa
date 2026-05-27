@@ -1,3 +1,4 @@
+import { router, usePathname } from 'expo-router';
 import { TabList, TabListProps, TabSlot, Tabs, TabTrigger, TabTriggerSlotProps } from 'expo-router/ui';
 import React from 'react';
 import { Pressable, StyleSheet, View } from 'react-native';
@@ -20,6 +21,19 @@ const tabs = [
 const menuBarColor = '#FF6628';
 
 export default function AppTabs() {
+  const pathname = usePathname();
+
+  React.useEffect(() => {
+    const inviteCode = pathname.match(/^\/invite\/([^/]+)/)?.[1];
+
+    if (inviteCode) {
+      router.replace({
+        pathname: '/groups',
+        params: { invite: decodeURIComponent(inviteCode) },
+      });
+    }
+  }, [pathname]);
+
   return (
     <Tabs>
       <TabSlot style={styles.slot} />
@@ -37,7 +51,7 @@ export default function AppTabs() {
 }
 
 function TabButton({ icon, isFocused, label, ...props }: TabButtonProps) {
-  const tintColor = isFocused ? '#FFFFFF' : '#6C6B72';
+  const tintColor = isFocused ? '#FFFFFF' : '#69543a';
 
   return (
     <Pressable

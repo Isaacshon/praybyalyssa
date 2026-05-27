@@ -1,288 +1,3892 @@
-import React, { useMemo, useState } from 'react';
-import { Platform, Pressable, ScrollView, StyleSheet, Text, View, useColorScheme } from 'react-native';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { Image as ExpoImage } from 'expo-image';
+import {
+  AccessibilityInfo,
+  Animated,
+  Easing,
+  Modal,
+  PanResponder,
+  Platform,
+  Pressable,
+  type NativeScrollEvent,
+  type NativeSyntheticEvent,
+  ScrollView,
+  StyleSheet,
+  Text,
+  useWindowDimensions,
+  View,
+  type ImageSourcePropType,
+} from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
-import { AnimatedAsset } from '@/components/praybor/AnimatedAsset';
 import { BlessiLogo } from '@/components/praybor/BlessiLogo';
-import { ReactionIcon } from '@/components/praybor/PrayborArtwork';
-import { Colors } from '@/constants/theme';
+import { ReactionIcon, UtilityIcon } from '@/components/praybor/PrayborArtwork';
+import {
+  ANIMAL_COMPANIONS,
+  countFruitBearingTrees,
+  getNextSelectedAnimalCompanionIds,
+  getUnlockedAnimalCompanions,
+  selectRoamingAnimalCompanions,
+  toggleSelectedAnimalCompanionId,
+  type AnimalCompanion,
+} from '@/lib/praybor/animal-companions';
+import {
+  GROW_MAP_AREA_DEFINITIONS,
+  getGrowMapAreaSelectionStatus,
+  isGrowMapAreaUnlocked,
+} from '@/lib/praybor/grow-map-areas';
+import { isTreeSpeciesUnlocked } from '@/lib/praybor/grow-collection-unlocks';
+import {
+  ROAMING_ANIMAL_FACING_FRAME,
+  getRoamingAnimalInitialDelayMs,
+  getRoamingAnimalInitialStep,
+  getRoamingAnimalIdleDelayMs,
+  getRoamingAnimalMove,
+  getRoamingAnimalMotionState,
+  getRoamingAnimalPoint,
+  getRoamingAnimalPose,
+  getRoamingAnimalTurnDelayMs,
+  shouldRoamingAnimalRest,
+  type RoamingAnimalDirectionScaleX,
+} from '@/lib/praybor/animal-roaming';
+import { getAnimalCompanionImageScale } from '@/lib/praybor/animal-presentation';
 import {
   COMPLETE_GROWTH_POINTS,
   TREE_SPECIES,
-  addGrowthEvent,
-  completeActiveTree,
   getGrowthStage,
   type ActiveTree,
-  type TreeGrowthEventType,
+  type TreeGrowthStage,
 } from '@/lib/praybor/domain';
-import { activeTree, treeSpeciesById } from '@/lib/praybor/sample-data';
+import {
+  getBlessieGrowPreviewCompletedTreeCount,
+  getBlessieGrowPreviewTree,
+} from '@/lib/praybor/dev-preview';
+import {
+  ANIMAL_COMPANION_IMAGE_ASSETS,
+  GROW_MAP_GUIDE_IMAGES,
+  GROW_MAP_SCENE_ASSETS,
+  TREE_STAGE_IMAGES_BY_SPECIES,
+  fieldImage,
+  forestLeafLayerImage,
+  forestTreeLayerImage,
+} from '@/lib/praybor/grow-assets';
+import { getActiveTreeSnapshot, subscribeToActiveTree, updateTreeGrowthAsAdmin } from '@/lib/praybor/growth-state';
+import {
+  fetchPersistedCompletedTreeCount,
+  subscribeToCurrentUserAdminStatus,
+} from '@/lib/praybor/tree-growth-persistence';
 
-const missionCards: {
-  type: TreeGrowthEventType;
-  title: string;
-  body: string;
-  icon: 'prayer' | 'share' | 'review';
-}[] = [
-  {
-    type: 'reaction_given',
-    title: 'Pray for someone',
-    body: '+10 growth',
-    icon: 'prayer',
-  },
-  {
-    type: 'prayer_posted',
-    title: 'Share a prayer',
-    body: '+5 growth',
-    icon: 'share',
-  },
-  {
-    type: 'recap_completed',
-    title: 'Review yesterday',
-    body: '+5 growth',
-    icon: 'review',
-  },
-];
+const AnimatedPressable = Animated.createAnimatedComponent(Pressable);
+const AnimatedExpoImage = Animated.createAnimatedComponent(ExpoImage);
+const collectionIconSources: Record<CollectionKind, ImageSourcePropType> = {
+  tree: require('../../../assets/images/praybor/collection/tree-book.png'),
+  animal: require('../../../assets/images/praybor/collection/animal-book.png'),
+};
 
-const missionBubbleShadow = Platform.select({
-  web: { boxShadow: '0 8px 14px rgba(10, 6, 0, 0.12)' },
+const pullTabShadow = Platform.select({
+  web: { boxShadow: '0 7px 18px rgba(255, 102, 40, 0.25)' },
   default: {
-    shadowColor: '#0A0600',
-    shadowOpacity: 0.12,
-    shadowRadius: 14,
-    shadowOffset: { width: 0, height: 8 },
-    elevation: 3,
-  },
-});
-
-const progressCardShadow = Platform.select({
-  web: { boxShadow: '0 8px 18px rgba(10, 6, 0, 0.12)' },
-  default: {
-    shadowColor: '#0A0600',
-    shadowOpacity: 0.12,
+    shadowColor: '#FF6628',
+    shadowOpacity: 0.25,
     shadowRadius: 18,
-    shadowOffset: { width: 0, height: 8 },
-    elevation: 3,
+    shadowOffset: { width: 0, height: 7 },
+    elevation: 5,
   },
 });
+const sheetContentShadow = Platform.select({
+  web: { boxShadow: '0 -9px 22px rgba(42, 28, 19, 0.14)' },
+  default: {
+    shadowColor: '#2a1c13',
+    shadowOpacity: 0.14,
+    shadowRadius: 22,
+    shadowOffset: { width: 0, height: -9 },
+    elevation: 8,
+  },
+});
+const stageProgressCardShadow = Platform.select({
+  web: { boxShadow: '0 3px 8px rgba(224, 143, 66, 0.15)' },
+  default: {
+    shadowColor: '#E08F42',
+    shadowOpacity: 0.15,
+    shadowRadius: 8,
+    shadowOffset: { width: 0, height: 3 },
+    elevation: 2,
+  },
+});
+const SHEET_CLOSED_TRANSLATE = 306;
+const SHEET_OPEN_DISTANCE = SHEET_CLOSED_TRANSLATE;
+const BREEZE_INPUT_RANGE = [0, 0.28, 0.5, 0.74, 1];
+const USE_NATIVE_ANIMATION_DRIVER = Platform.OS !== 'web';
+type CollectionKind = 'tree' | 'animal';
+type SheetActionKind = 'forest' | 'map' | 'collection';
+type GrowMapSceneAsset = (typeof GROW_MAP_SCENE_ASSETS)[keyof typeof GROW_MAP_SCENE_ASSETS];
 
-export function GrowScreen() {
-  const scheme = useColorScheme();
-  const colors = Colors[scheme === 'dark' ? 'dark' : 'light'];
-  const [tree, setTree] = useState<ActiveTree>(activeTree);
-  const [completedMessage, setCompletedMessage] = useState('');
-  const stage = getGrowthStage(tree.growthPoints);
-  const progress = Math.min(100, Math.round((tree.growthPoints / COMPLETE_GROWTH_POINTS) * 100));
-  const species = treeSpeciesById[tree.speciesId] ?? TREE_SPECIES[0];
-  const stageAsset = useMemo(
-    () =>
-      stage === 'completed'
-        ? 'tree_stage_fruiting_tree'
-        : (`tree_stage_${stage}` as const),
-    [stage],
-  );
+const DEFAULT_FOREST_SCENE_ASSET = {
+  id: 'forest',
+  guideImage: fieldImage,
+  backgroundImage: fieldImage,
+  stillLayerImage: forestTreeLayerImage,
+  breezeLayerImage: forestLeafLayerImage,
+} satisfies GrowMapSceneAsset;
 
-  function grow(type: TreeGrowthEventType) {
-    setCompletedMessage('');
-    setTree((current) => {
-      const next = addGrowthEvent(current, { type, occurredOn: new Date().toISOString().slice(0, 10) });
-      if (next.growthPoints >= COMPLETE_GROWTH_POINTS) {
-        const completed = completeActiveTree(next, TREE_SPECIES, 1);
-        setCompletedMessage(
-          `${species.label} bore fruit and was planted in your forest. A new seed is ready.`,
-        );
-        return completed.nextActiveTree;
-      }
-      return next;
-    });
+function getGrowMapSceneAsset(sceneId: string) {
+  return sceneId === 'forest'
+    ? DEFAULT_FOREST_SCENE_ASSET
+    : GROW_MAP_SCENE_ASSETS[sceneId as keyof typeof GROW_MAP_SCENE_ASSETS];
+}
+
+const GROW_MAP_AREAS = GROW_MAP_AREA_DEFINITIONS.map((area) => ({
+  ...area,
+  image: GROW_MAP_GUIDE_IMAGES[area.guideImageId],
+  scene: getGrowMapSceneAsset(area.sceneId),
+}));
+const TREE_LEAF_LAYER_RATIOS: Record<TreeGrowthStage, number> = {
+  seed: 0.62,
+  sprout: 0.68,
+  small_plant: 0.74,
+  young_tree: 0.8,
+  fruiting_tree: 0.84,
+  completed: 0.84,
+};
+const TREE_STAGE_SIZE_FACTORS: Record<TreeGrowthStage, number> = {
+  seed: 0.43,
+  sprout: 0.56,
+  small_plant: 0.7,
+  young_tree: 0.86,
+  fruiting_tree: 1,
+  completed: 1,
+};
+const FOREST_DIORAMA_SLOTS = [
+  { left: '42%', top: '8%', scale: 0.74 },
+  { left: '27%', top: '16%', scale: 0.69 },
+  { left: '57%', top: '17%', scale: 0.72 },
+  { left: '12%', top: '29%', scale: 0.64 },
+  { left: '41%', top: '29%', scale: 0.82 },
+  { left: '70%', top: '31%', scale: 0.68 },
+  { left: '23%', top: '43%', scale: 0.78 },
+  { left: '55%', top: '45%', scale: 0.86 },
+  { left: '78%', top: '47%', scale: 0.7 },
+  { left: '9%', top: '58%', scale: 0.72 },
+  { left: '36%', top: '61%', scale: 0.9 },
+  { left: '65%', top: '63%', scale: 0.82 },
+  { left: '20%', top: '75%', scale: 0.78 },
+  { left: '49%', top: '77%', scale: 0.88 },
+  { left: '76%', top: '78%', scale: 0.74 },
+] as const;
+const STAGE_PROGRESS_RANGES: Record<TreeGrowthStage, { start: number; end: number }> = {
+  seed: { start: 0, end: 1 },
+  sprout: { start: 1, end: 3 },
+  small_plant: { start: 3, end: 5 },
+  young_tree: { start: 5, end: 6 },
+  fruiting_tree: { start: 6, end: COMPLETE_GROWTH_POINTS },
+  completed: { start: COMPLETE_GROWTH_POINTS, end: COMPLETE_GROWTH_POINTS },
+};
+const GROWTH_VERSES: Record<TreeGrowthStage, { theme: string; excerpt: string; reference: string }> = {
+  seed: {
+    theme: "God's work",
+    excerpt: 'He who began a good work in you will bring it to completion.',
+    reference: 'Philippians 1:6 ESV',
+  },
+  sprout: {
+    theme: "God's help",
+    excerpt: 'My help comes from the LORD.',
+    reference: 'Psalm 121:2 ESV',
+  },
+  small_plant: {
+    theme: "God's faithfulness",
+    excerpt: 'Great is your faithfulness.',
+    reference: 'Lamentations 3:23 ESV',
+  },
+  young_tree: {
+    theme: "God's love",
+    excerpt: 'The love of God in Christ Jesus our Lord.',
+    reference: 'Romans 8:39 ESV',
+  },
+  fruiting_tree: {
+    theme: 'Fruit of prayer',
+    excerpt: 'Whoever abides in me bears much fruit.',
+    reference: 'John 15:5 ESV',
+  },
+  completed: {
+    theme: 'Fruit of prayer',
+    excerpt: 'Whoever abides in me bears much fruit.',
+    reference: 'John 15:5 ESV',
+  },
+};
+
+function clamp(value: number, min: number, max: number) {
+  return Math.min(max, Math.max(min, value));
+}
+
+function areStringArraysEqual(left: readonly string[], right: readonly string[]) {
+  return left.length === right.length && left.every((value, index) => value === right[index]);
+}
+
+function getWheelScrollIndex(
+  event: NativeSyntheticEvent<NativeScrollEvent>,
+  snapInterval: number,
+  itemCount: number,
+) {
+  return clamp(Math.round(event.nativeEvent.contentOffset.x / snapInterval), 0, itemCount - 1);
+}
+
+function getBundledGrowImageSource(source: ImageSourcePropType): ImageSourcePropType {
+  return source;
+}
+
+function treeStageIndex(stage: TreeGrowthStage) {
+  switch (stage) {
+    case 'seed':
+      return 0;
+    case 'sprout':
+      return 1;
+    case 'small_plant':
+      return 2;
+    case 'young_tree':
+      return 3;
+    case 'fruiting_tree':
+    case 'completed':
+      return 4;
+  }
+}
+
+function getStageLabel(stage: TreeGrowthStage) {
+  switch (stage) {
+    case 'seed':
+      return 'Seed';
+    case 'sprout':
+      return 'Sprout';
+    case 'small_plant':
+      return 'Growing';
+    case 'young_tree':
+      return 'Young tree';
+    case 'fruiting_tree':
+      return 'Bearing fruit';
+    case 'completed':
+      return 'Ready';
+  }
+}
+
+function getStageProgressPercent(growthPoints: number, stage: TreeGrowthStage) {
+  const range = STAGE_PROGRESS_RANGES[stage];
+  const span = range.end - range.start;
+
+  if (span <= 0) {
+    return 100;
+  }
+
+  return Math.round(clamp(((growthPoints - range.start) / span) * 100, 0, 100));
+}
+
+function getSpeciesLabel(speciesId: string) {
+  return TREE_SPECIES.find((species) => species.id === speciesId)?.label ?? 'Blessie Tree';
+}
+
+function formatTreeStartedDate(value?: string) {
+  if (!value) {
+    return 'Not planted yet';
+  }
+
+  const date = new Date(value);
+
+  if (Number.isNaN(date.getTime())) {
+    return 'Not planted yet';
+  }
+
+  return date.toLocaleDateString('en-US', {
+    month: 'short',
+    day: 'numeric',
+    year: 'numeric',
+  });
+}
+
+function countGrowthEvents(tree: ActiveTree | null, type: 'prayer_posted' | 'reaction_given') {
+  return (tree?.growthEvents ?? []).filter((event) => event.type === type).length;
+}
+
+function CollectionSilhouette({
+  kind,
+  source,
+}: {
+  kind: CollectionKind;
+  source?: ImageSourcePropType | null;
+}) {
+  if (source) {
+    return (
+      <View style={styles.collectionSilhouetteWrap}>
+        <ExpoImage
+          accessibilityIgnoresInvertColors
+          source={source}
+          contentFit="contain"
+          tintColor="#1F1711"
+          style={[
+            styles.collectionSilhouetteImage,
+            kind === 'animal' && styles.collectionSilhouetteAnimalImage,
+          ]}
+        />
+      </View>
+    );
   }
 
   return (
-    <SafeAreaView style={[styles.safeArea, { backgroundColor: colors.background }]}>
-      <ScrollView contentContainerStyle={styles.content}>
-        <View style={styles.header}>
-          <BlessiLogo imageStyle={styles.logoImage} />
-          <Text style={[styles.title, { color: colors.text }]}>
-            God is already at work.
-          </Text>
-          <Text style={[styles.subtitle, { color: colors.textSecondary }]}>
-            Your prayer and the prayers you carry are becoming fruit.
-          </Text>
-        </View>
+    <View style={styles.collectionSilhouetteWrap}>
+      <View
+        style={[
+          styles.collectionSilhouetteBody,
+          kind === 'tree' ? styles.treeSilhouetteBody : styles.animalSilhouetteBody,
+        ]}
+      />
+      {kind === 'tree' ? <View style={styles.treeSilhouetteTrunk} /> : <View style={styles.animalSilhouetteEar} />}
+    </View>
+  );
+}
 
-        <View style={styles.stageArea}>
-          <View style={[styles.missionBubble, { backgroundColor: colors.backgroundElement }]}>
-            <Text style={[styles.missionBubbleText, { color: colors.text }]}>Missions</Text>
-          </View>
-          <View style={[styles.soilPlate, { backgroundColor: colors.accent }]}>
-            <AnimatedAsset assetKey={stageAsset} size={190} loop />
-          </View>
-        </View>
+function RoamingAnimal({
+  bottom,
+  companion,
+  imageAssets,
+  index,
+  reduceMotion,
+  sceneWidth,
+  size,
+}: {
+  bottom: number;
+  companion: AnimalCompanion;
+  imageAssets: {
+    walkingImage: ImageSourcePropType;
+    idleImage: ImageSourcePropType;
+  };
+  index: number;
+  reduceMotion: boolean;
+  sceneWidth: number;
+  size: number;
+}) {
+  const translateX = useRef(new Animated.Value(0)).current;
+  const translateY = useRef(new Animated.Value(0)).current;
+  const directionScale = useRef(new Animated.Value(1)).current;
+  const walkingOpacity = useRef(new Animated.Value(0)).current;
+  const idleOpacity = useRef(new Animated.Value(1)).current;
+  const [pose, setPose] = useState<'idle' | 'walking'>('idle');
+  const walkingImageScale = getAnimalCompanionImageScale({
+    companionId: companion.id,
+    pose: 'walking',
+  });
+  const idleImageScale = getAnimalCompanionImageScale({
+    companionId: companion.id,
+    pose: 'idle',
+  });
 
-        <View style={[styles.progressCard, { backgroundColor: colors.backgroundElement }]}>
-          <View style={styles.progressTop}>
-            <Text style={[styles.progressTitle, { color: colors.text }]}>
-              {stage === 'seed' ? 'Seed' : species.label}
-            </Text>
-            <Text style={[styles.progressPercent, { color: colors.tint }]}>{progress}%</Text>
-          </View>
-          <View style={[styles.progressTrack, { backgroundColor: colors.backgroundSelected }]}>
-            <View style={[styles.progressFill, { backgroundColor: colors.tint, width: `${progress}%` }]} />
-          </View>
-          {completedMessage ? (
-            <View style={[styles.messageBox, { backgroundColor: colors.softGreen }]}>
-              <AnimatedAsset assetKey="fruit_to_seed" size={38} />
-              <Text style={[styles.messageText, { color: colors.text }]}>{completedMessage}</Text>
+  useEffect(() => {
+    const transitionDurationMs = reduceMotion ? 0 : 180;
+
+    Animated.parallel([
+      Animated.timing(walkingOpacity, {
+        toValue: pose === 'walking' ? 1 : 0,
+        duration: transitionDurationMs,
+        easing: Easing.out(Easing.cubic),
+        useNativeDriver: USE_NATIVE_ANIMATION_DRIVER,
+      }),
+      Animated.timing(idleOpacity, {
+        toValue: pose === 'idle' ? 1 : 0,
+        duration: transitionDurationMs,
+        easing: Easing.out(Easing.cubic),
+        useNativeDriver: USE_NATIVE_ANIMATION_DRIVER,
+      }),
+    ]).start();
+  }, [idleOpacity, pose, reduceMotion, walkingOpacity]);
+
+  useEffect(() => {
+    let mounted = true;
+    let idleTimeout: ReturnType<typeof setTimeout> | null = null;
+    let turnTimeout: ReturnType<typeof setTimeout> | null = null;
+    let motionTimeout: ReturnType<typeof setTimeout> | null = null;
+    let step = getRoamingAnimalInitialStep({ index });
+    let previousDirectionScaleX: RoamingAnimalDirectionScaleX | null = null;
+    let walkingCycleStartedAtMs = Date.now();
+    const firstPoint = getRoamingAnimalPoint({ index, sceneWidth, size, step });
+
+    translateX.setValue(firstPoint.x);
+    translateY.setValue(firstPoint.y);
+
+    if (reduceMotion) {
+      setPose('idle');
+      directionScale.setValue(index % 2 === 0 ? 1 : -1);
+
+      return () => {
+        mounted = false;
+      };
+    }
+
+    const clearRoamTimeout = () => {
+      if (idleTimeout) {
+        clearTimeout(idleTimeout);
+        idleTimeout = null;
+      }
+
+      if (turnTimeout) {
+        clearTimeout(turnTimeout);
+        turnTimeout = null;
+      }
+
+      if (motionTimeout) {
+        clearTimeout(motionTimeout);
+        motionTimeout = null;
+      }
+    };
+    const scheduleNextMove = () => {
+      const fromPoint = getRoamingAnimalPoint({ index, sceneWidth, size, step });
+      const toPoint = getRoamingAnimalPoint({ index, sceneWidth, size, step: step + 1 });
+      const move = getRoamingAnimalMove({
+        companionId: companion.id,
+        from: fromPoint,
+        size,
+        to: toPoint,
+      });
+      const resting = shouldRoamingAnimalRest({ index, step });
+      const idleDelay = getRoamingAnimalIdleDelayMs({ index, resting, step });
+      const firstWalkDelay = getRoamingAnimalInitialDelayMs({ index });
+      let segmentProgress = 0;
+
+      clearRoamTimeout();
+      const finishMove = () => {
+        step += 1;
+        scheduleNextMove();
+      };
+      const animateMove = () => {
+        if (!mounted) {
+          return;
+        }
+
+        const motionState = getRoamingAnimalMotionState({
+          companionId: companion.id,
+          elapsedMs: Date.now() - walkingCycleStartedAtMs,
+        });
+
+        if (!motionState.moving) {
+          setPose(getRoamingAnimalPose({ walking: false }));
+          motionTimeout = setTimeout(
+            animateMove,
+            Math.max(50, motionState.waitMs),
+          );
+
+          return;
+        }
+
+        const remainingMoveDurationMs = Math.max(
+          0,
+          Math.round(move.durationMs * (1 - segmentProgress)),
+        );
+
+        if (remainingMoveDurationMs <= 0) {
+          finishMove();
+
+          return;
+        }
+
+        setPose(getRoamingAnimalPose({ walking: true }));
+        const chunkDurationMs = Math.max(
+          16,
+          Math.min(remainingMoveDurationMs, motionState.remainingMovingMs),
+        );
+        const nextProgress = Math.min(
+          1,
+          segmentProgress + chunkDurationMs / move.durationMs,
+        );
+        const nextX = Math.round(fromPoint.x + move.deltaX * nextProgress);
+        const nextY = Math.round(fromPoint.y + move.deltaY * nextProgress);
+
+        Animated.parallel([
+          Animated.timing(translateX, {
+            toValue: nextX,
+            duration: chunkDurationMs,
+            easing: Easing.linear,
+            useNativeDriver: USE_NATIVE_ANIMATION_DRIVER,
+          }),
+          Animated.timing(translateY, {
+            toValue: nextY,
+            duration: chunkDurationMs,
+            easing: Easing.linear,
+            useNativeDriver: USE_NATIVE_ANIMATION_DRIVER,
+          }),
+        ]).start(({ finished }) => {
+          if (!finished || !mounted) {
+            return;
+          }
+
+          segmentProgress = nextProgress;
+
+          if (segmentProgress >= 1) {
+            finishMove();
+
+            return;
+          }
+
+          animateMove();
+        });
+      };
+      const startWalking = ({ wasIdle }: { wasIdle: boolean }) => {
+        if (!mounted) {
+          return;
+        }
+
+        if (wasIdle) {
+          walkingCycleStartedAtMs = Date.now();
+        }
+
+        directionScale.setValue(move.directionScaleX);
+        const turnDelay = getRoamingAnimalTurnDelayMs({
+          previousDirectionScaleX,
+          nextDirectionScaleX: move.directionScaleX,
+          wasIdle,
+        });
+        previousDirectionScaleX = move.directionScaleX;
+
+        if (turnDelay === 0) {
+          animateMove();
+
+          return;
+        }
+
+        turnTimeout = setTimeout(() => {
+          if (!mounted) {
+            return;
+          }
+
+          animateMove();
+        }, turnDelay);
+      };
+
+      if (resting) {
+        setPose(getRoamingAnimalPose({ walking: false }));
+        idleTimeout = setTimeout(() => startWalking({ wasIdle: true }), idleDelay);
+
+        return;
+      }
+
+      const wasIdle = previousDirectionScaleX === null;
+      idleTimeout = setTimeout(
+        () => startWalking({ wasIdle }),
+        wasIdle ? firstWalkDelay : idleDelay,
+      );
+    };
+
+    scheduleNextMove();
+
+    return () => {
+      mounted = false;
+      clearRoamTimeout();
+      translateX.stopAnimation();
+      translateY.stopAnimation();
+    };
+  }, [companion.id, directionScale, index, reduceMotion, sceneWidth, size, translateX, translateY]);
+
+  return (
+    <Animated.View
+      pointerEvents="none"
+      accessible={false}
+      accessibilityElementsHidden
+      importantForAccessibility="no-hide-descendants"
+      style={[
+        styles.roamingAnimalWrap,
+        {
+          bottom,
+          width: size,
+          height: size,
+          transform: [{ translateX }, { translateY }],
+        },
+      ]}>
+      <View style={styles.roamingAnimalFacing}>
+        <Animated.View
+          style={[
+            styles.roamingAnimalPoseLayer,
+            {
+              opacity: walkingOpacity,
+              transform: [{ scaleX: directionScale }],
+            },
+          ]}>
+          <ExpoImage
+            accessibilityIgnoresInvertColors
+            source={imageAssets.walkingImage}
+            contentFit="contain"
+            cachePolicy="memory-disk"
+            style={[
+              styles.roamingAnimalImage,
+              walkingImageScale !== 1 && { transform: [{ scale: walkingImageScale }] },
+            ]}
+            accessibilityLabel={companion.label}
+          />
+        </Animated.View>
+        <Animated.View
+          style={[
+            styles.roamingAnimalPoseLayer,
+            { opacity: idleOpacity },
+          ]}>
+          <ExpoImage
+            accessibilityIgnoresInvertColors
+            source={imageAssets.idleImage}
+            contentFit="contain"
+            cachePolicy="memory-disk"
+            style={[
+              styles.roamingAnimalImage,
+              idleImageScale !== 1 && { transform: [{ scale: idleImageScale }] },
+            ]}
+            accessibilityLabel={companion.label}
+          />
+        </Animated.View>
+      </View>
+    </Animated.View>
+  );
+}
+
+function SheetActionIcon({
+  kind,
+}: {
+  kind: SheetActionKind;
+}) {
+  if (kind === 'forest') {
+    return (
+      <View style={styles.sheetActionIcon}>
+        <ReactionIcon type="mission" size={31} color="#513c25" />
+      </View>
+    );
+  }
+
+  if (kind === 'map') {
+    return (
+      <View style={styles.sheetActionIcon}>
+        <UtilityIcon type="sliders" size={31} color="#513c25" />
+      </View>
+    );
+  }
+
+  return (
+    <View style={styles.sheetActionIcon}>
+      <ExpoImage
+        accessibilityIgnoresInvertColors
+        source={collectionIconSources.tree}
+        style={styles.sheetActionIconImage}
+        contentFit="contain"
+      />
+    </View>
+  );
+}
+
+function SheetActionButton({
+  kind,
+  title,
+  onPress,
+}: {
+  kind: SheetActionKind;
+  title: string;
+  onPress: () => void;
+}) {
+  return (
+    <Pressable
+      style={({ pressed }) => [styles.sheetActionTile, pressed && styles.sheetActionTilePressed]}
+      onPress={onPress}
+      accessible
+      accessibilityRole="button"
+      accessibilityLabel={`Open ${title}`}>
+      <SheetActionIcon kind={kind} />
+      <View style={styles.sheetActionCopy}>
+        <Text style={styles.sheetActionTitle}>{title}</Text>
+      </View>
+    </Pressable>
+  );
+}
+
+function OverlayHeader({
+  title,
+  onClose,
+}: {
+  title: string;
+  onClose: () => void;
+}) {
+  return (
+    <View style={styles.overlayHeader}>
+      <View style={styles.overlayHeaderSpacer} />
+      <Text style={styles.overlayHeaderTitle}>{title}</Text>
+      <Pressable
+        style={styles.overlayCloseButton}
+        onPress={onClose}
+        accessibilityRole="button"
+        accessibilityLabel={`Close ${title}`}
+        accessibilityHint={`Closes the ${title} screen.`}>
+        <Text style={styles.overlayCloseText}>×</Text>
+      </Pressable>
+    </View>
+  );
+}
+
+export function GrowScreen() {
+  const { height, width } = useWindowDimensions();
+  const growPreviewTree = useMemo(() => getBlessieGrowPreviewTree(), []);
+  const growPreviewCompletedTreeCount = useMemo(
+    () => getBlessieGrowPreviewCompletedTreeCount(),
+    [],
+  );
+  const [tree, setTree] = useState<ActiveTree | null>(
+    growPreviewTree ?? getActiveTreeSnapshot,
+  );
+  const [sceneLayers, setSceneLayers] = useState<GrowMapSceneAsset>(DEFAULT_FOREST_SCENE_ASSET);
+  const [showNextScene, setShowNextScene] = useState(false);
+  const [sheetOpen, setSheetOpen] = useState(false);
+  const [activeCollection, setActiveCollection] = useState<CollectionKind | null>(null);
+  const [lastCollectionKind, setLastCollectionKind] = useState<CollectionKind>('tree');
+  const [selectedCollectionSlot, setSelectedCollectionSlot] = useState<number | null>(null);
+  const [selectedTreeStageIndex, setSelectedTreeStageIndex] = useState(4);
+  const [completedTreeCount, setCompletedTreeCount] = useState(growPreviewCompletedTreeCount);
+  const [forestVisible, setForestVisible] = useState(false);
+  const [mapVisible, setMapVisible] = useState(false);
+  const [selectedMapIndex, setSelectedMapIndex] = useState(0);
+  const [reduceMotionEnabled, setReduceMotionEnabled] = useState(false);
+  const [isAdminUser, setIsAdminUser] = useState(false);
+  const [adminControlsOpen, setAdminControlsOpen] = useState(false);
+  const [adminGrowthBusy, setAdminGrowthBusy] = useState(false);
+  const [adminGrowthError, setAdminGrowthError] = useState<string | null>(null);
+  const [selectedRoamingCompanionIds, setSelectedRoamingCompanionIds] = useState<string[]>([]);
+  const shouldReduceMotion = Platform.OS !== 'web' && reduceMotionEnabled;
+  const forestBreeze = useRef(new Animated.Value(0)).current;
+  const treeCanopyLeftBreeze = useRef(new Animated.Value(0)).current;
+  const treeCanopyCenterBreeze = useRef(new Animated.Value(0)).current;
+  const treeCanopyRightBreeze = useRef(new Animated.Value(0)).current;
+  const completionSlide = useRef(new Animated.Value(0)).current;
+  const previousTreeRef = useRef<ActiveTree | null>(null);
+  const animalSelectionTouchedRef = useRef(false);
+  const sheetProgress = useRef(new Animated.Value(0)).current;
+  const sheetProgressValue = useRef(0);
+  const dragStartProgress = useRef(0);
+  const mapScrollRef = useRef<ScrollView | null>(null);
+  const mapScrollOffset = useRef(0);
+  const mapDragStartOffset = useRef(0);
+  const speciesId = tree?.speciesId ?? TREE_SPECIES[0]?.id ?? 'apple';
+  const stage = tree ? getGrowthStage(tree.growthPoints) : 'seed';
+  const growthDay = tree ? Math.min(COMPLETE_GROWTH_POINTS, tree.growthPoints) : 0;
+  const stageLabel = getStageLabel(stage);
+  const stageProgressPercent = getStageProgressPercent(growthDay, stage);
+  const growthVerse = GROWTH_VERSES[stage];
+  const displayedCollectionKind = activeCollection ?? lastCollectionKind;
+  const activeCollectionTitle = displayedCollectionKind === 'tree' ? 'Tree Book' : 'Animal Book';
+  const treeSpeciesLabel = getSpeciesLabel(speciesId);
+  const sharedPrayerCount = countGrowthEvents(tree, 'prayer_posted');
+  const carriedPrayerCount = countGrowthEvents(tree, 'reaction_given');
+  const plantedAtLabel = formatTreeStartedDate(tree?.startedAt);
+  const fruitBearingTreeCount = countFruitBearingTrees({
+    activeTree: tree,
+    completedTreeCount,
+  });
+  const wheelCardWidth = Math.round(Math.min(286, Math.max(236, width * 0.72)));
+  const wheelCardGap = 14;
+  const wheelSnapInterval = wheelCardWidth + wheelCardGap;
+  const wheelSidePadding = Math.max(18, Math.round((width - wheelCardWidth) / 2));
+  const collectionDexCardWidth = Math.floor((width - 40) / 3);
+  const treeDetailStageCellWidth = Math.max(
+    50,
+    Math.min(62, Math.floor((Math.min(width, 430) - 72) / 5)),
+  );
+  const hasFruitingTree = stage === 'fruiting_tree' || stage === 'completed';
+  const unlockedAnimalCompanions = useMemo(
+    () =>
+      getUnlockedAnimalCompanions({
+        activeTree: tree,
+        completedTreeCount,
+        isAdmin: isAdminUser,
+      }),
+    [completedTreeCount, isAdminUser, tree],
+  );
+  const unlockedAnimalCompanionIds = useMemo(
+    () => unlockedAnimalCompanions.map((companion) => companion.id),
+    [unlockedAnimalCompanions],
+  );
+  const unlockedAnimalIds = useMemo(
+    () => new Set(unlockedAnimalCompanionIds),
+    [unlockedAnimalCompanionIds],
+  );
+  const selectedAnimalIdSet = useMemo(
+    () => new Set(selectedRoamingCompanionIds),
+    [selectedRoamingCompanionIds],
+  );
+  const roamingAnimalEntries = useMemo(
+    () =>
+      selectRoamingAnimalCompanions({
+        fillUnselected: selectedRoamingCompanionIds.length === 0,
+        selectedCompanionIds: selectedRoamingCompanionIds,
+        unlockedCompanions: unlockedAnimalCompanions,
+      }).flatMap((companion) => {
+        const imageAssets = ANIMAL_COMPANION_IMAGE_ASSETS[companion.id];
+
+        return imageAssets ? [{ companion, imageAssets }] : [];
+      }),
+    [selectedRoamingCompanionIds, unlockedAnimalCompanions],
+  );
+  const speciesStageImages = useMemo(
+    () => {
+      return TREE_STAGE_IMAGES_BY_SPECIES[speciesId] ?? TREE_STAGE_IMAGES_BY_SPECIES.apple;
+    },
+    [speciesId],
+  );
+  const stageAsset = useMemo(
+    () => speciesStageImages[treeStageIndex(stage)],
+    [speciesStageImages, stage],
+  );
+  const resolvedSceneBackground = useMemo(
+    () => getBundledGrowImageSource(sceneLayers.backgroundImage),
+    [sceneLayers.backgroundImage],
+  );
+  const resolvedNextFieldImage = useMemo(
+    () => getBundledGrowImageSource(GROW_MAP_SCENE_ASSETS.wilderness.backgroundImage),
+    [],
+  );
+  const resolvedStageAsset = useMemo(
+    () => getBundledGrowImageSource(stageAsset),
+    [stageAsset],
+  );
+  const resolvedSceneStillLayer = useMemo(
+    () =>
+      sceneLayers.stillLayerImage
+        ? getBundledGrowImageSource(sceneLayers.stillLayerImage)
+        : null,
+    [sceneLayers.stillLayerImage],
+  );
+  const resolvedSceneBreezeLayer = useMemo(
+    () =>
+      sceneLayers.breezeLayerImage
+        ? getBundledGrowImageSource(sceneLayers.breezeLayerImage)
+        : null,
+    [sceneLayers.breezeLayerImage],
+  );
+  const treeWheelEntries = useMemo(
+    () =>
+      TREE_SPECIES.map((species, index) => {
+        const finalTreeImage =
+          TREE_STAGE_IMAGES_BY_SPECIES[species.id]?.[4] ??
+          TREE_STAGE_IMAGES_BY_SPECIES.apple[4];
+
+        return {
+          id: species.id,
+          label: species.label,
+          meta: `#${String(index + 1).padStart(3, '0')}`,
+          image: getBundledGrowImageSource(finalTreeImage),
+          unlocked: isTreeSpeciesUnlocked({
+            activeSpeciesId: speciesId,
+            hasFruitingTree,
+            isAdmin: isAdminUser,
+            speciesId: species.id,
+          }),
+        };
+      }),
+    [hasFruitingTree, isAdminUser, speciesId],
+  );
+  const animalWheelEntries = useMemo(
+    () =>
+      ANIMAL_COMPANIONS.map((companion, index) => {
+        const imageAssets = ANIMAL_COMPANION_IMAGE_ASSETS[companion.id];
+        const unlocked = unlockedAnimalIds.has(companion.id);
+
+        return {
+          id: companion.id,
+          label: companion.label,
+          meta: `#${String(index + 1).padStart(3, '0')}`,
+          image: imageAssets
+            ? getBundledGrowImageSource(imageAssets.idleImage)
+            : null,
+          unlocksAtFruitBearingTreeCount: companion.unlocksAtFruitBearingTreeCount,
+          unlocked,
+        };
+      }),
+    [unlockedAnimalIds],
+  );
+  const forestWheelEntries = useMemo(
+    () =>
+      treeWheelEntries.map((entry, index) => ({
+        ...entry,
+        title: entry.unlocked ? entry.label : '???',
+        status: entry.unlocked ? 'Fruiting tree' : 'Locked tree',
+        hint: entry.unlocked
+          ? 'A finished tree will live in this part of your forest.'
+          : 'A silhouette waits here until a tree bears fruit.',
+        meta: entry.unlocked ? `Tree ${index + 1}` : entry.meta,
+      })),
+    [treeWheelEntries],
+  );
+  const forestDioramaEntries = useMemo(
+    () => forestWheelEntries.filter((entry) => entry.unlocked).slice(0, FOREST_DIORAMA_SLOTS.length),
+    [forestWheelEntries],
+  );
+  const mapWheelEntries = useMemo(
+    () =>
+      GROW_MAP_AREAS.map((area, index) => ({
+        ...area,
+        meta: `#${String(index + 1).padStart(3, '0')}`,
+        image: getBundledGrowImageSource(area.image),
+        unlocked: isGrowMapAreaUnlocked({
+          area,
+          fruitBearingTreeCount,
+          isAdmin: isAdminUser,
+        }),
+      })),
+    [fruitBearingTreeCount, isAdminUser],
+  );
+  const mapWheelMaxOffset = Math.max(0, (mapWheelEntries.length - 1) * wheelSnapInterval);
+  const snapMapWheelToIndex = useCallback(
+    (index: number, animated = true) => {
+      const nextIndex = clamp(index, 0, mapWheelEntries.length - 1);
+      const nextOffset = nextIndex * wheelSnapInterval;
+
+      mapScrollOffset.current = nextOffset;
+      setSelectedMapIndex(nextIndex);
+      mapScrollRef.current?.scrollTo({ x: nextOffset, y: 0, animated });
+    },
+    [mapWheelEntries.length, wheelSnapInterval],
+  );
+  const mapWheelPanResponder = useMemo(
+    () =>
+      PanResponder.create({
+        onStartShouldSetPanResponder: () => false,
+        onMoveShouldSetPanResponder: (_, gestureState) =>
+          Platform.OS === 'web' &&
+          Math.abs(gestureState.dx) > 4 &&
+          Math.abs(gestureState.dx) > Math.abs(gestureState.dy),
+        onPanResponderGrant: () => {
+          mapDragStartOffset.current = mapScrollOffset.current;
+        },
+        onPanResponderMove: (_, gestureState) => {
+          const nextOffset = clamp(mapDragStartOffset.current - gestureState.dx, 0, mapWheelMaxOffset);
+
+          mapScrollOffset.current = nextOffset;
+          mapScrollRef.current?.scrollTo({ x: nextOffset, y: 0, animated: false });
+        },
+        onPanResponderRelease: (_, gestureState) => {
+          const targetOffset = clamp(mapDragStartOffset.current - gestureState.dx, 0, mapWheelMaxOffset);
+
+          snapMapWheelToIndex(Math.round(targetOffset / wheelSnapInterval));
+        },
+        onPanResponderTerminate: () => {
+          snapMapWheelToIndex(Math.round(mapScrollOffset.current / wheelSnapInterval));
+        },
+      }),
+    [mapWheelMaxOffset, snapMapWheelToIndex, wheelSnapInterval],
+  );
+  const selectMapScene = useCallback(
+    (index: number) => {
+      const targetArea = mapWheelEntries[index];
+
+      if (!targetArea?.unlocked) {
+        snapMapWheelToIndex(index);
+        return;
+      }
+
+      setSceneLayers(targetArea.scene);
+      setShowNextScene(false);
+      completionSlide.setValue(0);
+      snapMapWheelToIndex(index);
+    },
+    [completionSlide, mapWheelEntries, snapMapWheelToIndex],
+  );
+  const hasSceneStillLayer = Boolean(resolvedSceneStillLayer);
+  const hasSceneBreezeLayer = Boolean(resolvedSceneBreezeLayer);
+  const matureTreeArtSize = Math.min(372, Math.max(260, width * 0.92));
+  const treeArtSize = Math.round(matureTreeArtSize * TREE_STAGE_SIZE_FACTORS[stage]);
+  const treeLeafLayerHeight = Math.round(treeArtSize * TREE_LEAF_LAYER_RATIOS[stage]);
+  const treeLayerOverlap = Math.max(6, Math.round(treeArtSize * 0.035));
+  const treeBaseLayerTop = Math.max(0, treeLeafLayerHeight - treeLayerOverlap);
+  const treeBottomOffset = Math.min(438, Math.max(388, height * 0.51));
+  const roamingAnimalSize = Math.round(clamp(width * 0.2, 72, 104));
+  const roamingAnimalBottom = Math.max(
+    236,
+    treeBottomOffset - Math.round(roamingAnimalSize * 0.56),
+  );
+  const sheetTranslateY = sheetProgress.interpolate({
+    inputRange: [0, 1],
+    outputRange: [SHEET_CLOSED_TRANSLATE, 0],
+    extrapolate: 'clamp',
+  });
+  const currentSceneTranslateY = completionSlide.interpolate({
+    inputRange: [0, 1],
+    outputRange: [0, -height],
+    extrapolate: 'clamp',
+  });
+  const nextSceneTranslateY = completionSlide.interpolate({
+    inputRange: [0, 1],
+    outputRange: [height, 0],
+    extrapolate: 'clamp',
+  });
+  const pullTabOpacity = sheetProgress.interpolate({
+    inputRange: [0, 0.18, 0.42],
+    outputRange: [1, 0.78, 0],
+    extrapolate: 'clamp',
+  });
+  const pullTabScale = sheetProgress.interpolate({
+    inputRange: [0, 0.42],
+    outputRange: [1, 0.9],
+    extrapolate: 'clamp',
+  });
+  const treeLeftBreezeRotate = treeCanopyLeftBreeze.interpolate({
+    inputRange: BREEZE_INPUT_RANGE,
+    outputRange: ['-0.08deg', '0.05deg', '-0.02deg', '0.07deg', '-0.08deg'],
+  });
+  const treeLeftBreezeTranslateX = treeCanopyLeftBreeze.interpolate({
+    inputRange: BREEZE_INPUT_RANGE,
+    outputRange: [-0.18, 0.22, 0.04, -0.14, -0.18],
+  });
+  const treeLeftBreezeTranslateY = treeCanopyLeftBreeze.interpolate({
+    inputRange: BREEZE_INPUT_RANGE,
+    outputRange: [0, -0.06, 0, 0.03, 0],
+  });
+  const treeLeftBreezeScaleX = treeCanopyLeftBreeze.interpolate({
+    inputRange: BREEZE_INPUT_RANGE,
+    outputRange: [0.9995, 1.0005, 1, 0.9998, 0.9995],
+  });
+  const treeCenterBreezeRotate = treeCanopyCenterBreeze.interpolate({
+    inputRange: BREEZE_INPUT_RANGE,
+    outputRange: ['0.02deg', '-0.06deg', '0deg', '0.05deg', '0.02deg'],
+  });
+  const treeCenterBreezeTranslateX = treeCanopyCenterBreeze.interpolate({
+    inputRange: BREEZE_INPUT_RANGE,
+    outputRange: [0.11, -0.18, -0.02, 0.14, 0.11],
+  });
+  const treeCenterBreezeTranslateY = treeCanopyCenterBreeze.interpolate({
+    inputRange: BREEZE_INPUT_RANGE,
+    outputRange: [0, -0.04, 0, 0.02, 0],
+  });
+  const treeCenterBreezeScaleX = treeCanopyCenterBreeze.interpolate({
+    inputRange: BREEZE_INPUT_RANGE,
+    outputRange: [1, 0.9995, 1, 1.0002, 1],
+  });
+  const treeRightBreezeRotate = treeCanopyRightBreeze.interpolate({
+    inputRange: BREEZE_INPUT_RANGE,
+    outputRange: ['0.07deg', '-0.05deg', '0.01deg', '0.06deg', '0.07deg'],
+  });
+  const treeRightBreezeTranslateX = treeCanopyRightBreeze.interpolate({
+    inputRange: BREEZE_INPUT_RANGE,
+    outputRange: [0.16, -0.12, -0.04, 0.09, 0.16],
+  });
+  const treeRightBreezeTranslateY = treeCanopyRightBreeze.interpolate({
+    inputRange: BREEZE_INPUT_RANGE,
+    outputRange: [0, -0.05, 0, 0.025, 0],
+  });
+  const treeRightBreezeScaleX = treeCanopyRightBreeze.interpolate({
+    inputRange: BREEZE_INPUT_RANGE,
+    outputRange: [1.0002, 1.0008, 1, 0.9996, 1.0002],
+  });
+  const forestLeavesTranslateX = forestBreeze.interpolate({
+    inputRange: BREEZE_INPUT_RANGE,
+    outputRange: [-0.16, 0.24, 0.03, -0.12, -0.16],
+  });
+  const forestLeavesTranslateY = forestBreeze.interpolate({
+    inputRange: BREEZE_INPUT_RANGE,
+    outputRange: [0, -0.12, 0, 0.08, 0],
+  });
+  const forestLeavesScaleX = forestBreeze.interpolate({
+    inputRange: BREEZE_INPUT_RANGE,
+    outputRange: [0.9996, 1.0011, 1, 0.9995, 0.9996],
+  });
+
+  function openCollection(kind: CollectionKind) {
+    setLastCollectionKind(kind);
+    setSelectedCollectionSlot(null);
+    setSelectedTreeStageIndex(4);
+    setActiveCollection(kind);
+  }
+
+  function openCollectionBook() {
+    openCollection('tree');
+  }
+
+  function openTreeDetail(index: number) {
+    setSelectedTreeStageIndex(4);
+    setSelectedCollectionSlot(index);
+  }
+
+  function closeCollection() {
+    setActiveCollection(null);
+    setSelectedCollectionSlot(null);
+    setSelectedTreeStageIndex(4);
+  }
+
+  const toggleRoamingAnimalSelection = useCallback(
+    (companionId: string) => {
+      animalSelectionTouchedRef.current = true;
+      setSelectedRoamingCompanionIds((currentCompanionIds) =>
+        toggleSelectedAnimalCompanionId({
+          companionId,
+          selectedCompanionIds: currentCompanionIds,
+          unlockedCompanionIds: unlockedAnimalCompanionIds,
+        }),
+      );
+    },
+    [unlockedAnimalCompanionIds],
+  );
+
+  const adjustTreeGrowthAsAdmin = useCallback(
+    async (direction: -1 | 1) => {
+      if (!tree || adminGrowthBusy) {
+        return;
+      }
+
+      const nextGrowthPoints =
+        direction > 0 && tree.growthPoints >= COMPLETE_GROWTH_POINTS
+          ? COMPLETE_GROWTH_POINTS
+          : Math.min(
+              COMPLETE_GROWTH_POINTS,
+              Math.max(0, tree.growthPoints + direction),
+            );
+
+      if (
+        nextGrowthPoints === tree.growthPoints &&
+        !(direction > 0 && tree.growthPoints >= COMPLETE_GROWTH_POINTS)
+      ) {
+        return;
+      }
+
+      setAdminGrowthBusy(true);
+      setAdminGrowthError(null);
+
+      try {
+        await updateTreeGrowthAsAdmin(nextGrowthPoints);
+      } catch (error) {
+        console.warn('Could not update tree growth as admin.', error);
+        setAdminGrowthError('Could not update this tree. Try again.');
+      } finally {
+        setAdminGrowthBusy(false);
+      }
+    },
+    [adminGrowthBusy, tree],
+  );
+
+  useEffect(() => {
+    setSelectedRoamingCompanionIds((currentCompanionIds) => {
+      const nextCompanionIds = getNextSelectedAnimalCompanionIds({
+        manuallySelected: animalSelectionTouchedRef.current,
+        selectedCompanionIds: currentCompanionIds,
+        unlockedCompanionIds: unlockedAnimalCompanionIds,
+      });
+
+      return areStringArraysEqual(currentCompanionIds, nextCompanionIds)
+        ? currentCompanionIds
+        : nextCompanionIds;
+    });
+  }, [unlockedAnimalCompanionIds]);
+
+  useEffect(() => {
+    let mounted = true;
+    let unsubscribe: (() => void) | undefined;
+
+    subscribeToCurrentUserAdminStatus((nextAdminStatus) => {
+      if (mounted) {
+        setIsAdminUser(nextAdminStatus);
+      }
+    }).then((nextUnsubscribe) => {
+      if (mounted) {
+        unsubscribe = nextUnsubscribe;
+      } else {
+        nextUnsubscribe();
+      }
+    });
+
+    return () => {
+      mounted = false;
+      unsubscribe?.();
+    };
+  }, []);
+
+  const animateSheet = useCallback((open: boolean) => {
+    setSheetOpen(open);
+
+    if (shouldReduceMotion) {
+      sheetProgress.setValue(open ? 1 : 0);
+      return;
+    }
+
+    Animated.spring(sheetProgress, {
+      toValue: open ? 1 : 0,
+      useNativeDriver: USE_NATIVE_ANIMATION_DRIVER,
+      tension: 90,
+      friction: 12,
+    }).start();
+  }, [sheetProgress, shouldReduceMotion]);
+
+  const sheetPanResponder = useMemo(
+    () =>
+      PanResponder.create({
+        onStartShouldSetPanResponder: () => true,
+        onMoveShouldSetPanResponder: (_, gestureState) =>
+          Math.abs(gestureState.dy) > 8 && Math.abs(gestureState.dy) > Math.abs(gestureState.dx),
+        onPanResponderGrant: () => {
+          dragStartProgress.current = sheetProgressValue.current;
+        },
+        onPanResponderMove: (_, gestureState) => {
+          const nextProgress = clamp(
+            dragStartProgress.current - gestureState.dy / SHEET_OPEN_DISTANCE,
+            0,
+            1,
+          );
+          sheetProgress.setValue(nextProgress);
+        },
+        onPanResponderRelease: (_, gestureState) => {
+          if (Math.abs(gestureState.dx) < 8 && Math.abs(gestureState.dy) < 8) {
+            animateSheet(!sheetOpen);
+            return;
+          }
+
+          if (gestureState.vy < -0.45 || gestureState.dy < -72) {
+            animateSheet(true);
+            return;
+          }
+
+          if (gestureState.vy > 0.45 || gestureState.dy > 72) {
+            animateSheet(false);
+            return;
+          }
+
+          animateSheet(sheetProgressValue.current > 0.45);
+        },
+        onPanResponderTerminate: () => {
+          animateSheet(sheetProgressValue.current > 0.5);
+        },
+      }),
+    [animateSheet, sheetOpen, sheetProgress],
+  );
+
+  useEffect(() => {
+    const listener = sheetProgress.addListener(({ value }) => {
+      sheetProgressValue.current = value;
+    });
+
+    return () => {
+      sheetProgress.removeListener(listener);
+    };
+  }, [sheetProgress]);
+
+  useEffect(() => {
+    if (growPreviewTree) {
+      setTree(growPreviewTree);
+
+      return undefined;
+    }
+
+    return subscribeToActiveTree(setTree);
+  }, [growPreviewTree]);
+
+  useEffect(() => {
+    let mounted = true;
+
+    if (growPreviewTree) {
+      setCompletedTreeCount(growPreviewCompletedTreeCount);
+      return () => {
+        mounted = false;
+      };
+    }
+
+    fetchPersistedCompletedTreeCount().then((nextCompletedTreeCount) => {
+      if (mounted) {
+        setCompletedTreeCount(nextCompletedTreeCount);
+      }
+    });
+
+    return () => {
+      mounted = false;
+    };
+  }, [growPreviewCompletedTreeCount, growPreviewTree, tree?.id]);
+
+  useEffect(() => {
+    let mounted = true;
+
+    void AccessibilityInfo.isReduceMotionEnabled().then((enabled) => {
+      if (mounted) {
+        setReduceMotionEnabled(enabled);
+      }
+    });
+
+    const subscription = AccessibilityInfo.addEventListener('reduceMotionChanged', setReduceMotionEnabled);
+
+    return () => {
+      mounted = false;
+      subscription.remove();
+    };
+  }, []);
+
+  useEffect(() => {
+    const previousTree = previousTreeRef.current;
+
+    if (
+      previousTree &&
+      tree &&
+      previousTree.id !== tree.id &&
+      previousTree.growthPoints >= COMPLETE_GROWTH_POINTS &&
+      tree.growthPoints === 0
+    ) {
+      if (shouldReduceMotion) {
+        setSceneLayers(GROW_MAP_SCENE_ASSETS.wilderness);
+        setShowNextScene(false);
+        completionSlide.setValue(0);
+        previousTreeRef.current = tree;
+        return;
+      }
+
+      setShowNextScene(true);
+      completionSlide.setValue(0);
+      Animated.timing(completionSlide, {
+        toValue: 1,
+        duration: 720,
+        useNativeDriver: USE_NATIVE_ANIMATION_DRIVER,
+      }).start(() => {
+        setSceneLayers(GROW_MAP_SCENE_ASSETS.wilderness);
+        setShowNextScene(false);
+        completionSlide.setValue(0);
+      });
+    }
+
+    previousTreeRef.current = tree;
+  }, [completionSlide, shouldReduceMotion, tree]);
+
+  useEffect(() => {
+    if (shouldReduceMotion) {
+      forestBreeze.setValue(0.5);
+      treeCanopyLeftBreeze.setValue(0.5);
+      treeCanopyCenterBreeze.setValue(0.5);
+      treeCanopyRightBreeze.setValue(0.5);
+      return;
+    }
+
+    forestBreeze.setValue(0);
+    treeCanopyLeftBreeze.setValue(0);
+    treeCanopyCenterBreeze.setValue(0);
+    treeCanopyRightBreeze.setValue(0);
+    const forestBreezeLoop = Animated.loop(
+      Animated.sequence([
+        Animated.timing(forestBreeze, {
+          toValue: 0.28,
+          duration: 7600,
+          useNativeDriver: USE_NATIVE_ANIMATION_DRIVER,
+        }),
+        Animated.timing(forestBreeze, {
+          toValue: 0.74,
+          duration: 8600,
+          useNativeDriver: USE_NATIVE_ANIMATION_DRIVER,
+        }),
+        Animated.timing(forestBreeze, {
+          toValue: 1,
+          duration: 7800,
+          useNativeDriver: USE_NATIVE_ANIMATION_DRIVER,
+        }),
+        Animated.timing(forestBreeze, {
+          toValue: 0,
+          duration: 8400,
+          useNativeDriver: USE_NATIVE_ANIMATION_DRIVER,
+        }),
+        Animated.delay(800),
+      ]),
+    );
+    const treeCanopyLeftLoop = Animated.loop(
+      Animated.sequence([
+        Animated.delay(150),
+        Animated.timing(treeCanopyLeftBreeze, {
+          toValue: 0.28,
+          duration: 7600,
+          useNativeDriver: USE_NATIVE_ANIMATION_DRIVER,
+        }),
+        Animated.timing(treeCanopyLeftBreeze, {
+          toValue: 0.74,
+          duration: 8800,
+          useNativeDriver: USE_NATIVE_ANIMATION_DRIVER,
+        }),
+        Animated.timing(treeCanopyLeftBreeze, {
+          toValue: 1,
+          duration: 6600,
+          useNativeDriver: USE_NATIVE_ANIMATION_DRIVER,
+        }),
+        Animated.timing(treeCanopyLeftBreeze, {
+          toValue: 0,
+          duration: 8000,
+          useNativeDriver: USE_NATIVE_ANIMATION_DRIVER,
+        }),
+        Animated.delay(600),
+      ]),
+    );
+    const treeCanopyCenterLoop = Animated.loop(
+      Animated.sequence([
+        Animated.delay(900),
+        Animated.timing(treeCanopyCenterBreeze, {
+          toValue: 0.28,
+          duration: 9300,
+          useNativeDriver: USE_NATIVE_ANIMATION_DRIVER,
+        }),
+        Animated.timing(treeCanopyCenterBreeze, {
+          toValue: 0.74,
+          duration: 7800,
+          useNativeDriver: USE_NATIVE_ANIMATION_DRIVER,
+        }),
+        Animated.timing(treeCanopyCenterBreeze, {
+          toValue: 1,
+          duration: 9000,
+          useNativeDriver: USE_NATIVE_ANIMATION_DRIVER,
+        }),
+        Animated.timing(treeCanopyCenterBreeze, {
+          toValue: 0,
+          duration: 8400,
+          useNativeDriver: USE_NATIVE_ANIMATION_DRIVER,
+        }),
+        Animated.delay(900),
+      ]),
+    );
+    const treeCanopyRightLoop = Animated.loop(
+      Animated.sequence([
+        Animated.delay(520),
+        Animated.timing(treeCanopyRightBreeze, {
+          toValue: 0.28,
+          duration: 10100,
+          useNativeDriver: USE_NATIVE_ANIMATION_DRIVER,
+        }),
+        Animated.timing(treeCanopyRightBreeze, {
+          toValue: 0.74,
+          duration: 7000,
+          useNativeDriver: USE_NATIVE_ANIMATION_DRIVER,
+        }),
+        Animated.timing(treeCanopyRightBreeze, {
+          toValue: 1,
+          duration: 10800,
+          useNativeDriver: USE_NATIVE_ANIMATION_DRIVER,
+        }),
+        Animated.timing(treeCanopyRightBreeze, {
+          toValue: 0,
+          duration: 9200,
+          useNativeDriver: USE_NATIVE_ANIMATION_DRIVER,
+        }),
+      ]),
+    );
+
+    forestBreezeLoop.start();
+    treeCanopyLeftLoop.start();
+    treeCanopyCenterLoop.start();
+    treeCanopyRightLoop.start();
+
+    return () => {
+      forestBreezeLoop.stop();
+      treeCanopyLeftLoop.stop();
+      treeCanopyCenterLoop.stop();
+      treeCanopyRightLoop.stop();
+    };
+  }, [
+    forestBreeze,
+    shouldReduceMotion,
+    treeCanopyCenterBreeze,
+    treeCanopyLeftBreeze,
+    treeCanopyRightBreeze,
+  ]);
+
+  const collectionWheelEntries = displayedCollectionKind === 'tree' ? treeWheelEntries : animalWheelEntries;
+  const selectedTreeEntry =
+    displayedCollectionKind === 'tree' && selectedCollectionSlot !== null
+      ? treeWheelEntries[selectedCollectionSlot]
+      : null;
+  const selectedTreeSpeciesId = selectedTreeEntry?.id ?? speciesId;
+  const selectedTreeDetailLabel = selectedTreeEntry?.label ?? treeSpeciesLabel;
+  const selectedTreeStageImages =
+    TREE_STAGE_IMAGES_BY_SPECIES[selectedTreeSpeciesId] ?? TREE_STAGE_IMAGES_BY_SPECIES.apple;
+  const resolvedSelectedTreeStageImages = selectedTreeStageImages.map((source, stageIndex) => ({
+    id: `${selectedTreeSpeciesId}-stage-${stageIndex + 1}`,
+    speciesId: selectedTreeSpeciesId,
+    speciesLabel: selectedTreeDetailLabel,
+    stageIndex,
+    source: getBundledGrowImageSource(source),
+  }));
+  const selectedTreeDetailImage =
+    resolvedSelectedTreeStageImages[selectedTreeStageIndex]?.source ??
+    selectedTreeEntry?.image ??
+    resolvedStageAsset;
+  const showingTreeDetail = Boolean(selectedTreeEntry?.unlocked);
+
+  return (
+    <SafeAreaView edges={[]} style={styles.safeArea}>
+      <View style={styles.scene}>
+        <AnimatedExpoImage
+          source={resolvedSceneBackground}
+          contentFit="cover"
+          style={[
+            styles.groundBackground,
+            {
+              transform: [{ translateY: currentSceneTranslateY }, { scale: 1.02 }],
+            },
+          ]}
+        />
+        {hasSceneStillLayer || hasSceneBreezeLayer ? (
+          <>
+            {resolvedSceneStillLayer ? (
+              <AnimatedExpoImage
+                source={resolvedSceneStillLayer}
+                contentFit="cover"
+                style={[
+                  styles.groundBackground,
+                  styles.forestTreeLayer,
+                  {
+                    transform: [{ translateY: currentSceneTranslateY }, { scale: 1.02 }],
+                  },
+                ]}
+              />
+            ) : null}
+            {resolvedSceneBreezeLayer ? (
+              <AnimatedExpoImage
+                source={resolvedSceneBreezeLayer}
+                contentFit="cover"
+                style={[
+                  styles.groundBackground,
+                  styles.forestLeafLayer,
+                  {
+                    transform: [
+                      { translateY: currentSceneTranslateY },
+                      { translateX: forestLeavesTranslateX },
+                      { translateY: forestLeavesTranslateY },
+                      { scale: 1.02 },
+                      { scaleX: forestLeavesScaleX },
+                    ],
+                  },
+                ]}
+              />
+            ) : null}
+          </>
+        ) : null}
+        {showNextScene ? (
+          <AnimatedExpoImage
+            source={resolvedNextFieldImage}
+            contentFit="cover"
+            style={[
+              styles.groundBackground,
+              {
+                transform: [{ translateY: nextSceneTranslateY }, { scale: 1.02 }],
+              },
+            ]}
+          />
+        ) : null}
+        <View
+          pointerEvents="none"
+          accessible={false}
+          accessibilityElementsHidden
+          importantForAccessibility="no-hide-descendants"
+          style={[styles.currentTreeWrap, { bottom: treeBottomOffset }]}>
+          <View style={[styles.currentTreeLayerStack, { width: treeArtSize, height: treeArtSize }]}>
+            <View
+              style={[
+                styles.currentTreeBaseClip,
+                {
+                  top: treeBaseLayerTop,
+                  height: treeArtSize - treeBaseLayerTop,
+                },
+              ]}>
+              <ExpoImage
+                source={resolvedStageAsset}
+                contentFit="contain"
+                style={[
+                  styles.currentTreeImage,
+                  {
+                    width: treeArtSize,
+                    height: treeArtSize,
+                    transform: [{ translateY: -treeBaseLayerTop }],
+                  },
+                ]}
+                accessible={false}
+              />
             </View>
-          ) : null}
-          <View style={styles.missionsGrid}>
-            {missionCards.map((mission) => (
-              <Pressable
-                key={mission.type}
-                accessibilityRole="button"
-                accessibilityLabel={`${mission.title}. ${mission.body}`}
-                onPress={() => grow(mission.type)}
-                style={[styles.missionCard, { backgroundColor: colors.softBlue }]}>
-                <View style={styles.missionIcon}>
-                  <ReactionIcon type={mission.icon === 'prayer' ? 'prayer' : mission.icon} size={34} />
-                </View>
-                <View style={styles.missionTextBlock}>
-                  <Text style={[styles.missionTitle, { color: colors.text }]}>{mission.title}</Text>
-                  <Text style={[styles.missionBody, { color: colors.textSecondary }]}>{mission.body}</Text>
-                </View>
-              </Pressable>
-            ))}
+            <Animated.View
+              style={[
+                styles.currentTreeLeafClip,
+                styles.currentTreeLeafClipLeft,
+                {
+                  width: treeArtSize * 0.42,
+                  height: treeLeafLayerHeight,
+                  transform: [
+                    { translateX: treeLeftBreezeTranslateX },
+                    { translateY: treeLeftBreezeTranslateY },
+                    { rotate: treeLeftBreezeRotate },
+                    { scaleX: treeLeftBreezeScaleX },
+                  ],
+                },
+              ]}>
+              <ExpoImage
+                source={resolvedStageAsset}
+                contentFit="contain"
+                style={[styles.currentTreeImage, { width: treeArtSize, height: treeArtSize }]}
+                accessible={false}
+              />
+            </Animated.View>
+            <Animated.View
+              style={[
+                styles.currentTreeLeafClip,
+                styles.currentTreeLeafClipCenter,
+                {
+                  left: treeArtSize * 0.29,
+                  width: treeArtSize * 0.42,
+                  height: treeLeafLayerHeight,
+                  transform: [
+                    { translateX: treeCenterBreezeTranslateX },
+                    { translateY: treeCenterBreezeTranslateY },
+                    { rotate: treeCenterBreezeRotate },
+                    { scaleX: treeCenterBreezeScaleX },
+                  ],
+                },
+              ]}>
+              <ExpoImage
+                source={resolvedStageAsset}
+                contentFit="contain"
+                style={[
+                  styles.currentTreeImage,
+                  {
+                    width: treeArtSize,
+                    height: treeArtSize,
+                    transform: [{ translateX: -treeArtSize * 0.29 }],
+                  },
+                ]}
+                accessible={false}
+              />
+            </Animated.View>
+            <Animated.View
+              style={[
+                styles.currentTreeLeafClip,
+                styles.currentTreeLeafClipRight,
+                {
+                  left: treeArtSize * 0.58,
+                  width: treeArtSize * 0.42,
+                  height: treeLeafLayerHeight,
+                  transform: [
+                    { translateX: treeRightBreezeTranslateX },
+                    { translateY: treeRightBreezeTranslateY },
+                    { rotate: treeRightBreezeRotate },
+                    { scaleX: treeRightBreezeScaleX },
+                  ],
+                },
+              ]}>
+              <ExpoImage
+                source={resolvedStageAsset}
+                contentFit="contain"
+                style={[
+                  styles.currentTreeImage,
+                  {
+                    width: treeArtSize,
+                    height: treeArtSize,
+                    transform: [{ translateX: -treeArtSize * 0.58 }],
+                  },
+                ]}
+                accessible={false}
+              />
+            </Animated.View>
           </View>
         </View>
-      </ScrollView>
+
+        {roamingAnimalEntries.map(({ companion, imageAssets }, index) => (
+          <RoamingAnimal
+            key={companion.id}
+            bottom={roamingAnimalBottom + index * 28}
+            companion={companion}
+            imageAssets={imageAssets}
+            index={index}
+            reduceMotion={shouldReduceMotion}
+            sceneWidth={width}
+            size={roamingAnimalSize}
+          />
+        ))}
+
+        <Animated.View style={[styles.growthSheet, { transform: [{ translateY: sheetTranslateY }] }]}>
+          <AnimatedPressable
+            style={[
+              styles.pullTabHitArea,
+              {
+                opacity: pullTabOpacity,
+                transform: [{ scale: pullTabScale }],
+              },
+            ]}
+            pointerEvents={sheetOpen ? 'none' : 'auto'}
+            onPress={() => animateSheet(true)}
+            {...sheetPanResponder.panHandlers}
+            accessibilityRole="button"
+            accessibilityState={{ expanded: sheetOpen }}
+            accessibilityLabel={sheetOpen ? 'Hide seed growth details' : 'Show seed growth details'}>
+            <View style={styles.pullTabClip}>
+              <View style={styles.pullTab}>
+                <View style={styles.pullTabArrow} />
+              </View>
+            </View>
+          </AnimatedPressable>
+          <View style={styles.sheetContent}>
+            <Pressable
+              style={styles.sheetDragZone}
+              onPress={() => animateSheet(false)}
+              {...sheetPanResponder.panHandlers}
+              accessibilityRole="button"
+              accessibilityState={{ expanded: sheetOpen }}
+              accessibilityLabel="Drag down to hide seed growth details">
+              <View style={styles.sheetDragHandle} />
+            </Pressable>
+            <View style={styles.sheetBody}>
+              <View
+                style={styles.seedProgressCard}
+                accessible
+                accessibilityRole="progressbar"
+                accessibilityLabel={`Current stage ${stageLabel}. ${stageProgressPercent} percent toward the next stage.`}
+                accessibilityValue={{ min: 0, max: 100, now: stageProgressPercent, text: `${stageProgressPercent}%` }}>
+                <View style={styles.seedProgressTopRow}>
+                  <View style={styles.seedProgressColumn}>
+                    <Text style={styles.seedProgressLabel}>Stage</Text>
+                    <Text style={styles.seedProgressValue}>{stageLabel}</Text>
+                  </View>
+                  <View style={[styles.seedProgressColumn, styles.seedProgressColumnRight]}>
+                    <Text style={styles.seedProgressLabel}>Progress</Text>
+                    <Text style={styles.seedProgressPercent}>{stageProgressPercent}%</Text>
+                  </View>
+                </View>
+                <View style={styles.stageProgressTrack}>
+                  <View style={[styles.stageProgressFill, { width: `${stageProgressPercent}%` }]} />
+                </View>
+              </View>
+              {isAdminUser ? (
+                <View style={styles.adminTreeControls}>
+                  <Pressable
+                    style={({ pressed }) => [
+                      styles.adminTreeToggle,
+                      pressed && styles.adminTreeTogglePressed,
+                    ]}
+                    onPress={() => setAdminControlsOpen((isOpen) => !isOpen)}
+                    accessibilityRole="button"
+                    accessibilityState={{ expanded: adminControlsOpen }}
+                    accessibilityLabel="Open admin tree growth controls">
+                    <Text style={styles.adminTreeToggleText}>Admin tree controls</Text>
+                    <Text style={styles.adminTreeToggleValue}>{tree?.growthPoints ?? 0}/7</Text>
+                  </Pressable>
+                  {adminControlsOpen ? (
+                    <View style={styles.adminTreeActions}>
+                      <Pressable
+                        style={({ pressed }) => [
+                          styles.adminTreeAction,
+                          (pressed || adminGrowthBusy) && styles.adminTreeActionPressed,
+                        ]}
+                        disabled={adminGrowthBusy || !tree || tree.growthPoints <= 0}
+                        onPress={() => adjustTreeGrowthAsAdmin(-1)}
+                        accessibilityRole="button"
+                        accessibilityLabel="Regress tree by one growth step">
+                        <Text style={styles.adminTreeActionText}>Regress</Text>
+                      </Pressable>
+                      <Pressable
+                        style={({ pressed }) => [
+                          styles.adminTreeAction,
+                          styles.adminTreeActionPrimary,
+                          (pressed || adminGrowthBusy) && styles.adminTreeActionPressed,
+                        ]}
+                        disabled={adminGrowthBusy || !tree}
+                        onPress={() => adjustTreeGrowthAsAdmin(1)}
+                        accessibilityRole="button"
+                        accessibilityLabel={
+                          tree && tree.growthPoints >= COMPLETE_GROWTH_POINTS
+                            ? 'Evolve completed tree into the next seed'
+                            : 'Evolve tree by one growth step'
+                        }>
+                        <Text style={[styles.adminTreeActionText, styles.adminTreeActionPrimaryText]}>
+                          Evolve
+                        </Text>
+                      </Pressable>
+                    </View>
+                  ) : null}
+                  {adminGrowthError ? (
+                    <Text style={styles.adminTreeError}>{adminGrowthError}</Text>
+                  ) : null}
+                </View>
+              ) : null}
+              <View style={styles.verseCard}>
+                <Text style={styles.verseTheme}>{growthVerse.theme}</Text>
+                <Text style={styles.verseExcerpt}>{growthVerse.excerpt}</Text>
+                <Text style={styles.verseReference}>{growthVerse.reference}</Text>
+              </View>
+              <View style={styles.sheetActionGrid}>
+                <SheetActionButton kind="forest" title="Forest" onPress={() => setForestVisible(true)} />
+                <SheetActionButton kind="map" title="Map" onPress={() => setMapVisible(true)} />
+                <SheetActionButton kind="collection" title="Collection" onPress={openCollectionBook} />
+              </View>
+            </View>
+          </View>
+        </Animated.View>
+        <Modal
+          visible={forestVisible}
+          animationType="slide"
+          presentationStyle="pageSheet"
+          onRequestClose={() => setForestVisible(false)}>
+          <SafeAreaView edges={['top', 'bottom']} style={styles.overlayScreen} accessibilityViewIsModal>
+            <OverlayHeader title="Faith Forest" onClose={() => setForestVisible(false)} />
+            <ScrollView
+              showsVerticalScrollIndicator={false}
+              contentContainerStyle={styles.forestDioramaContent}>
+              <Text style={styles.forestDioramaEyebrow}>Fruit-bearing trees</Text>
+              <Text style={styles.forestDioramaTitle}>Your Faith Forest</Text>
+              <Text style={styles.forestDioramaCopy}>
+                Each finished tree gets planted here as a small living memory of prayers shared and carried.
+              </Text>
+              <View style={styles.forestDioramaStage}>
+                <View style={styles.forestDioramaPlatformShadow} />
+                <View style={styles.forestDioramaPlatform}>
+                  <View style={styles.forestDioramaPlatformTop} />
+                  <View style={styles.forestDioramaSoftRowOne} />
+                  <View style={styles.forestDioramaSoftRowTwo} />
+                  {FOREST_DIORAMA_SLOTS.map((slot, index) => {
+                    const entry = forestDioramaEntries[index];
+
+                    return (
+                      <View
+                        key={`forest-slot-${index}`}
+                        pointerEvents="none"
+                        style={[
+                          styles.forestDioramaSlot,
+                          {
+                            left: slot.left,
+                            top: slot.top,
+                            zIndex: index + 1,
+                            transform: [{ translateX: -41 }, { scale: slot.scale }],
+                          },
+                        ]}>
+                        <View style={styles.forestDioramaPlantShadow} />
+                        {entry ? (
+                          <ExpoImage
+                            accessibilityIgnoresInvertColors
+                            source={entry.image}
+                            contentFit="contain"
+                            style={styles.forestDioramaTree}
+                          />
+                        ) : (
+                          <View style={styles.forestDioramaEmptyPlant} />
+                        )}
+                      </View>
+                    );
+                  })}
+                </View>
+              </View>
+              {forestDioramaEntries.length > 0 ? (
+                <View style={styles.forestDioramaList}>
+                  {forestDioramaEntries.map((entry) => (
+                    <View key={`forest-summary-${entry.id}`} style={styles.forestDioramaChip}>
+                      <View style={styles.forestDioramaChipImageWrap}>
+                        <ExpoImage
+                          accessibilityIgnoresInvertColors
+                          source={entry.image}
+                          contentFit="contain"
+                          style={styles.forestDioramaChipImage}
+                        />
+                      </View>
+                      <Text numberOfLines={1} style={styles.forestDioramaChipText}>
+                        {entry.title}
+                      </Text>
+                    </View>
+                  ))}
+                </View>
+              ) : (
+                <View style={styles.forestDioramaEmptyCard}>
+                  <Text style={styles.forestDioramaEmptyTitle}>No fruiting trees yet</Text>
+                  <Text style={styles.forestDioramaEmptyCopy}>
+                    Share and carry prayers to grow your first tree into this forest.
+                  </Text>
+                </View>
+              )}
+            </ScrollView>
+          </SafeAreaView>
+        </Modal>
+        <Modal
+          visible={mapVisible}
+          animationType="slide"
+          presentationStyle="pageSheet"
+          onRequestClose={() => setMapVisible(false)}>
+          <SafeAreaView edges={['top', 'bottom']} style={styles.overlayScreen} accessibilityViewIsModal>
+            <OverlayHeader title="Seed Map" onClose={() => setMapVisible(false)} />
+            <ScrollView
+              ref={mapScrollRef}
+              horizontal
+              decelerationRate="fast"
+              snapToAlignment="center"
+              snapToInterval={wheelSnapInterval}
+              showsHorizontalScrollIndicator={false}
+              scrollEventThrottle={16}
+              onScroll={(event) => {
+                mapScrollOffset.current = event.nativeEvent.contentOffset.x;
+              }}
+              onMomentumScrollEnd={(event) => {
+                const nextIndex = getWheelScrollIndex(event, wheelSnapInterval, mapWheelEntries.length);
+
+                mapScrollOffset.current = nextIndex * wheelSnapInterval;
+                setSelectedMapIndex(nextIndex);
+              }}
+              onScrollEndDrag={(event) => {
+                const nextIndex = getWheelScrollIndex(event, wheelSnapInterval, mapWheelEntries.length);
+
+                mapScrollOffset.current = nextIndex * wheelSnapInterval;
+                setSelectedMapIndex(nextIndex);
+              }}
+              {...(Platform.OS === 'web' ? mapWheelPanResponder.panHandlers : {})}
+              contentContainerStyle={[styles.wheelContent, { paddingHorizontal: wheelSidePadding }]}>
+              {mapWheelEntries.map((area, index) => {
+                const isSelected = index === selectedMapIndex;
+                const isUnlocked = area.unlocked;
+                const mapSelectionStatus = getGrowMapAreaSelectionStatus({
+                  currentSceneId: sceneLayers.id,
+                  isUnlocked,
+                  sceneId: area.scene.id,
+                });
+                const isCurrentMap = mapSelectionStatus === 'current';
+                const mapKicker =
+                  mapSelectionStatus === 'current'
+                    ? 'Current map'
+                    : mapSelectionStatus === 'available'
+                      ? 'Available'
+                      : 'Locked';
+                const mapTitle = isUnlocked ? area.title : 'Locked place';
+                const mapCopy = isUnlocked
+                  ? isCurrentMap
+                    ? `${area.subtitle}. This is the map in use now.`
+                    : area.subtitle
+                  : `Opens after ${area.unlocksAtFruitBearingTreeCount} fruiting tree${
+                      area.unlocksAtFruitBearingTreeCount === 1 ? '' : 's'
+                    }.`;
+                const mapActionDisabled = !isUnlocked || isCurrentMap;
+
+                return (
+                  <View
+                    key={area.id}
+                    style={[
+                      styles.wheelSlide,
+                      {
+                        width: wheelCardWidth,
+                        marginRight: index === mapWheelEntries.length - 1 ? 0 : wheelCardGap,
+                      },
+                    ]}>
+                    <View
+                      style={[
+                        styles.mapReferenceCard,
+                        isSelected && styles.wheelCardSelected,
+                        isCurrentMap && styles.mapReferenceCardCurrent,
+                        !isUnlocked && styles.mapReferenceCardLocked,
+                      ]}>
+                      <View style={styles.mapReferenceArt}>
+                        <ExpoImage
+                          accessibilityIgnoresInvertColors
+                          source={area.image}
+                          contentFit="cover"
+                          style={[styles.mapReferenceImage, !isUnlocked && styles.mapReferenceImageLocked]}
+                        />
+                        {!isUnlocked ? (
+                          <View style={styles.mapReferenceLockedShade}>
+                            <Text style={styles.mapReferenceLockedText}>Locked</Text>
+                          </View>
+                        ) : null}
+                      </View>
+                      <View style={styles.mapReferenceBody}>
+                        <Text style={[
+                          styles.mapReferenceKicker,
+                          isCurrentMap && styles.mapReferenceKickerCurrent,
+                          !isUnlocked && styles.mapReferenceKickerLocked,
+                        ]}>
+                          {mapKicker}
+                        </Text>
+                        <Text style={[styles.mapReferenceTitle, !isUnlocked && styles.mapReferenceTitleLocked]}>
+                          {mapTitle}
+                        </Text>
+                        <Text style={styles.mapReferenceCopy}>{mapCopy}</Text>
+                        <Pressable
+                          disabled={mapActionDisabled}
+                          onPress={() => selectMapScene(index)}
+                          style={({ pressed }) => [
+                            styles.mapReferenceSelectButton,
+                            isCurrentMap && styles.mapReferenceSelectButtonCurrent,
+                            !isUnlocked && styles.mapReferenceSelectButtonDisabled,
+                            pressed && !mapActionDisabled && styles.mapReferenceSelectButtonPressed,
+                          ]}
+                          accessibilityRole="button"
+                          accessibilityState={{ disabled: mapActionDisabled, selected: isCurrentMap }}
+                          accessibilityLabel={
+                            isCurrentMap
+                              ? `${area.title} is the current map`
+                              : isUnlocked
+                                ? `Use ${area.title} map`
+                                : `${area.title} map is locked`
+                          }>
+                          <Text
+                            style={[
+                              styles.mapReferenceSelectText,
+                              isCurrentMap && styles.mapReferenceSelectTextCurrent,
+                              !isUnlocked && styles.mapReferenceSelectTextDisabled,
+                            ]}>
+                            {isCurrentMap ? 'Current map' : isUnlocked ? 'Use map' : 'Locked'}
+                          </Text>
+                        </Pressable>
+                      </View>
+                    </View>
+                  </View>
+                );
+              })}
+            </ScrollView>
+          </SafeAreaView>
+        </Modal>
+        <Modal
+          visible={activeCollection !== null}
+          animationType="slide"
+          presentationStyle="fullScreen"
+          onRequestClose={closeCollection}>
+          <SafeAreaView
+            edges={['top', 'bottom']}
+            style={styles.collectionScreen}
+            accessibilityViewIsModal>
+            <View style={styles.collectionScreenHeader}>
+              {showingTreeDetail ? (
+                <Pressable
+                  style={styles.collectionHeaderButton}
+                  onPress={() => {
+                    setSelectedTreeStageIndex(4);
+                    setSelectedCollectionSlot(null);
+                  }}
+                  accessibilityRole="button"
+                  accessibilityLabel="Back to collection grid">
+                  <Text style={styles.collectionHeaderButtonText}>Back</Text>
+                </Pressable>
+              ) : (
+                <View style={styles.collectionHeaderButtonPlaceholder} />
+              )}
+              <View style={styles.collectionHeaderTitleBlock}>
+                <View style={styles.collectionHeaderLogoFrame}>
+                  <BlessiLogo imageStyle={styles.collectionHeaderLogoImage} />
+                </View>
+                <Text style={styles.collectionModalTitle}>{activeCollectionTitle}</Text>
+              </View>
+              <Pressable
+                style={styles.collectionModalClose}
+                onPress={closeCollection}
+                accessibilityRole="button"
+                accessibilityLabel="Exit collection book"
+                accessibilityHint="Closes the collection screen.">
+                <Text style={styles.collectionModalCloseText}>×</Text>
+              </Pressable>
+            </View>
+            {!showingTreeDetail ? (
+              <View style={styles.collectionTabs}>
+                <Pressable
+                  onPress={() => openCollection('tree')}
+                  style={[
+                    styles.collectionTab,
+                    displayedCollectionKind === 'tree' && styles.collectionTabActive,
+                  ]}
+                  accessibilityRole="tab"
+                  accessibilityState={{ selected: displayedCollectionKind === 'tree' }}
+                  accessibilityLabel="Show tree collection">
+                  <Text
+                    style={[
+                      styles.collectionTabText,
+                      displayedCollectionKind === 'tree' && styles.collectionTabTextActive,
+                    ]}>
+                    Trees
+                  </Text>
+                </Pressable>
+                <Pressable
+                  onPress={() => openCollection('animal')}
+                  style={[
+                    styles.collectionTab,
+                    displayedCollectionKind === 'animal' && styles.collectionTabActive,
+                  ]}
+                  accessibilityRole="tab"
+                  accessibilityState={{ selected: displayedCollectionKind === 'animal' }}
+                  accessibilityLabel="Show animal collection">
+                  <Text
+                    style={[
+                      styles.collectionTabText,
+                      displayedCollectionKind === 'animal' && styles.collectionTabTextActive,
+                    ]}>
+                    Animals
+                  </Text>
+                </Pressable>
+              </View>
+            ) : null}
+
+            {showingTreeDetail ? (
+              <ScrollView
+                style={styles.collectionDetailScroll}
+                contentContainerStyle={styles.collectionDetailContent}
+                showsVerticalScrollIndicator={false}>
+                <View style={styles.treeDetailHero}>
+                  <ExpoImage
+                    accessibilityIgnoresInvertColors
+                    source={selectedTreeDetailImage}
+                    contentFit="contain"
+                    style={styles.treeDetailHeroImage}
+                  />
+                </View>
+                <Text style={styles.treeDetailEyebrow}>Unlocked tree</Text>
+                <Text style={styles.treeDetailTitle}>{selectedTreeDetailLabel}</Text>
+                <Text style={styles.treeDetailCopy}>
+                  This tree grows through prayer requests you share and prayers you carry for others.
+                </Text>
+
+                <View style={styles.treeDetailStatsRow}>
+                  <View style={styles.treeDetailStat}>
+                    <Text style={styles.treeDetailStatValue}>{plantedAtLabel}</Text>
+                    <Text style={styles.treeDetailStatLabel}>Planted</Text>
+                  </View>
+                  <View style={styles.treeDetailStat}>
+                    <Text style={styles.treeDetailStatValue}>5 steps</Text>
+                    <Text style={styles.treeDetailStatLabel}>Seed to fruit</Text>
+                  </View>
+                </View>
+                <View style={styles.treeDetailStatsRow}>
+                  <View style={styles.treeDetailStat}>
+                    <Text style={styles.treeDetailStatValue}>{sharedPrayerCount}</Text>
+                    <Text style={styles.treeDetailStatLabel}>Shared prayers</Text>
+                  </View>
+                  <View style={styles.treeDetailStat}>
+                    <Text style={styles.treeDetailStatValue}>{carriedPrayerCount}</Text>
+                    <Text style={styles.treeDetailStatLabel}>Prayers carried</Text>
+                  </View>
+                </View>
+
+                <View style={styles.treeDetailSection}>
+                  <Text style={styles.treeDetailSectionTitle}>Growth stages</Text>
+                  <View style={styles.treeDetailStageRow}>
+                    {resolvedSelectedTreeStageImages.map((stageEntry) => (
+                      <Pressable
+                        key={stageEntry.id}
+                        onPress={() => setSelectedTreeStageIndex(stageEntry.stageIndex)}
+                        style={({ pressed }) => [
+                          styles.treeDetailStageCell,
+                          { width: treeDetailStageCellWidth },
+                          stageEntry.stageIndex === selectedTreeStageIndex && styles.treeDetailStageCellActive,
+                          pressed && styles.treeDetailStageCellPressed,
+                        ]}
+                        accessibilityRole="button"
+                        accessibilityState={{ selected: stageEntry.stageIndex === selectedTreeStageIndex }}
+                        accessibilityLabel={`Show ${stageEntry.speciesLabel} stage ${stageEntry.stageIndex + 1}`}>
+                        <ExpoImage
+                          accessibilityIgnoresInvertColors
+                          source={stageEntry.source}
+                          contentFit="contain"
+                          style={styles.treeDetailStageImage}
+                        />
+                        <Text numberOfLines={1} style={styles.treeDetailStageSpecies}>
+                          {stageEntry.speciesLabel}
+                        </Text>
+                        <Text style={styles.treeDetailStageLabel}>Stage {stageEntry.stageIndex + 1}</Text>
+                      </Pressable>
+                    ))}
+                  </View>
+                </View>
+
+                <View style={styles.treeDetailVerseCard}>
+                  <Text style={styles.verseTheme}>{growthVerse.theme}</Text>
+                  <Text style={styles.verseExcerpt}>{growthVerse.excerpt}</Text>
+                  <Text style={styles.verseReference}>{growthVerse.reference}</Text>
+                </View>
+              </ScrollView>
+            ) : (
+              <ScrollView
+                style={styles.collectionSlides}
+                contentContainerStyle={styles.collectionDexGridContent}
+                showsVerticalScrollIndicator={false}>
+                {collectionWheelEntries.map((entry, index) => {
+                  const treeEntry = displayedCollectionKind === 'tree' ? treeWheelEntries[index] : null;
+                  const animalEntry = displayedCollectionKind === 'animal' ? animalWheelEntries[index] : null;
+                  const isUnlockedTree = displayedCollectionKind === 'tree' && entry.unlocked;
+                  const isUnlockedAnimal = displayedCollectionKind === 'animal' && entry.unlocked;
+                  const isUnlocked = isUnlockedTree || isUnlockedAnimal;
+                  const dexNumber = String(index + 1).padStart(3, '0');
+                  const cardName = isUnlocked ? entry.label : 'Locked';
+                  const isSelectedAnimal = Boolean(
+                    isUnlockedAnimal && animalEntry && selectedAnimalIdSet.has(animalEntry.id),
+                  );
+                  const isOnlySelectedAnimal =
+                    isSelectedAnimal && selectedRoamingCompanionIds.length <= 1;
+                  const isAnimalSelectionAtCapacity = selectedRoamingCompanionIds.length >= 2;
+                  const isAnimalSelectDisabled =
+                    !isUnlockedAnimal ||
+                    isOnlySelectedAnimal ||
+                    (!isSelectedAnimal && isAnimalSelectionAtCapacity);
+                  const animalSelectLabel = isSelectedAnimal
+                    ? isOnlySelectedAnimal
+                      ? 'Active'
+                      : 'Selected'
+                    : isAnimalSelectionAtCapacity
+                      ? 'Max 2'
+                      : 'Select';
+                  const footerLabel = isUnlockedTree
+                    ? stageLabel
+                    : isUnlockedAnimal
+                      ? isSelectedAnimal
+                        ? 'Roaming'
+                        : 'Unlocked'
+                      : 'Locked';
+
+                  return (
+                    <Pressable
+                      key={`${displayedCollectionKind}-${entry.id}`}
+                      disabled={displayedCollectionKind === 'tree' && !isUnlockedTree}
+                      onPress={isUnlockedTree ? () => openTreeDetail(index) : undefined}
+                      style={({ pressed }) => [
+                        styles.collectionDexCard,
+                        { width: collectionDexCardWidth },
+                        isUnlocked && styles.collectionDexCardUnlocked,
+                        isSelectedAnimal && styles.collectionDexCardSelectedAnimal,
+                        pressed && styles.collectionDexCardPressed,
+                      ]}
+                      accessible={!isUnlockedAnimal}
+                      accessibilityRole={isUnlockedTree ? 'button' : 'text'}
+                      accessibilityLabel={
+                        isUnlockedTree
+                          ? `Open ${cardName} details.`
+                          : isUnlockedAnimal
+                            ? `${cardName} is unlocked.`
+                          : `Locked ${activeCollectionTitle} slot ${index + 1}.`
+                      }>
+                      <View style={styles.collectionDexHeader}>
+                        <Text
+                          style={[
+                            styles.collectionDexNumber,
+                            displayedCollectionKind === 'animal' && styles.collectionDexNumberAnimal,
+                            !isUnlocked && styles.collectionDexNumberLocked,
+                          ]}>
+                          {dexNumber}
+                        </Text>
+                        <Text numberOfLines={1} style={styles.collectionDexName}>
+                          {cardName}
+                        </Text>
+                      </View>
+                      <View style={styles.collectionDexArt}>
+                        {displayedCollectionKind === 'tree' ? (
+                          <ExpoImage
+                            accessibilityIgnoresInvertColors
+                            source={treeEntry?.image ?? resolvedStageAsset}
+                            tintColor={isUnlockedTree ? undefined : '#1F1711'}
+                            contentFit="contain"
+                            style={[
+                              styles.collectionDexImage,
+                              !isUnlockedTree && styles.collectionDexLockedTreeImage,
+                            ]}
+                          />
+                        ) : isUnlockedAnimal && animalEntry?.image ? (
+                          <ExpoImage
+                            accessibilityIgnoresInvertColors
+                            source={animalEntry.image}
+                            contentFit="contain"
+                            style={[styles.collectionDexImage, styles.collectionDexAnimalImage]}
+                          />
+                        ) : (
+                          <View
+                            style={[
+                              styles.collectionDexSilhouetteScale,
+                              displayedCollectionKind === 'animal' && styles.collectionDexAnimalSilhouetteScale,
+                            ]}>
+                            <CollectionSilhouette
+                              kind={displayedCollectionKind}
+                              source={treeEntry?.image ?? animalEntry?.image ?? null}
+                            />
+                          </View>
+                        )}
+                      </View>
+                      <View style={styles.collectionDexFooter}>
+                        <Text style={styles.collectionDexFooterText}>
+                          {footerLabel}
+                        </Text>
+                        {isUnlockedAnimal && animalEntry ? (
+                          <Pressable
+                            disabled={isAnimalSelectDisabled}
+                            onPress={() => toggleRoamingAnimalSelection(animalEntry.id)}
+                            style={({ pressed }) => [
+                              styles.collectionDexSelectButton,
+                              isSelectedAnimal && styles.collectionDexSelectButtonActive,
+                              isAnimalSelectDisabled && styles.collectionDexSelectButtonDisabled,
+                              pressed && !isAnimalSelectDisabled && styles.collectionDexSelectButtonPressed,
+                            ]}
+                            accessibilityRole="button"
+                            accessibilityState={{
+                              disabled: isAnimalSelectDisabled,
+                              selected: isSelectedAnimal,
+                            }}
+                            accessibilityLabel={
+                              isSelectedAnimal
+                                ? `${animalEntry.label} is selected to roam`
+                                : `Select ${animalEntry.label} to roam`
+                            }>
+                            <Text
+                              numberOfLines={1}
+                              style={[
+                                styles.collectionDexSelectText,
+                                isSelectedAnimal && styles.collectionDexSelectTextActive,
+                                isAnimalSelectDisabled && styles.collectionDexSelectTextDisabled,
+                              ]}>
+                              {animalSelectLabel}
+                            </Text>
+                          </Pressable>
+                        ) : null}
+                      </View>
+                    </Pressable>
+                  );
+                })}
+              </ScrollView>
+            )}
+          </SafeAreaView>
+        </Modal>
+      </View>
     </SafeAreaView>
   );
 }
 
 const styles = StyleSheet.create({
-  safeArea: {
+  loadingSafeArea: {
     flex: 1,
-  },
-  content: {
-    paddingHorizontal: 22,
-    paddingTop: 22,
-    paddingBottom: 132,
-  },
-  header: {
-    alignItems: 'center',
-    gap: 10,
-  },
-  logoImage: {
-    width: 124,
-    height: 38,
-  },
-  title: {
     width: '100%',
-    fontSize: 32,
-    lineHeight: 40,
-    fontWeight: '900',
-  },
-  subtitle: {
-    fontSize: 17,
-    lineHeight: 25,
-    fontWeight: '700',
-  },
-  stageArea: {
-    minHeight: 348,
-    alignItems: 'center',
-    justifyContent: 'flex-end',
-  },
-  missionBubble: {
-    position: 'absolute',
-    top: 22,
-    right: 8,
-    width: 96,
-    height: 96,
-    borderRadius: 48,
     alignItems: 'center',
     justifyContent: 'center',
-    ...missionBubbleShadow,
+    backgroundColor: '#F7F3EA',
+    paddingHorizontal: 26,
   },
-  missionBubbleText: {
-    fontWeight: '900',
-  },
-  soilPlate: {
-    width: 282,
-    height: 118,
-    borderRadius: 141,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  progressCard: {
-    marginTop: 18,
+  loadingPanel: {
+    width: '100%',
+    maxWidth: 328,
     borderRadius: 24,
-    padding: 18,
-    gap: 16,
-    ...progressCardShadow,
+    paddingHorizontal: 22,
+    paddingVertical: 24,
+    alignItems: 'center',
+    backgroundColor: 'rgba(255, 255, 255, 0.94)',
+    borderWidth: 1,
+    borderColor: 'rgba(42, 28, 19, 0.08)',
+    ...stageProgressCardShadow,
   },
-  progressTop: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    gap: 12,
+  loadingSeedIcon: {
+    width: 58,
+    height: 58,
+    borderRadius: 24,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: 'rgba(255, 243, 214, 0.9)',
   },
-  progressTitle: {
+  loadingSeedLeaf: {
+    width: 29,
+    height: 22,
+    borderTopLeftRadius: 17,
+    borderTopRightRadius: 17,
+    borderBottomLeftRadius: 9,
+    borderBottomRightRadius: 17,
+    backgroundColor: '#8CCB68',
+    transform: [{ rotate: '-13deg' }],
+  },
+  loadingSeedStem: {
+    width: 5,
+    height: 17,
+    marginTop: -3,
+    borderRadius: 4,
+    backgroundColor: '#69543a',
+  },
+  loadingTitle: {
+    marginTop: 14,
+    color: '#2a1c13',
     fontSize: 18,
+    lineHeight: 22,
     fontWeight: '900',
   },
-  progressPercent: {
-    fontSize: 18,
-    fontWeight: '900',
+  loadingCopy: {
+    marginTop: 5,
+    color: '#69543a',
+    fontSize: 12,
+    lineHeight: 16,
+    fontWeight: '700',
+    textAlign: 'center',
   },
-  progressTrack: {
-    height: 12,
+  loadingTrack: {
+    width: '100%',
+    height: 7,
+    marginTop: 18,
     borderRadius: 6,
     overflow: 'hidden',
+    backgroundColor: 'rgba(255, 138, 91, 0.18)',
   },
-  progressFill: {
+  loadingFill: {
     height: '100%',
     borderRadius: 6,
+    backgroundColor: '#FF6628',
   },
-  messageBox: {
-    borderRadius: 18,
-    padding: 12,
-    flexDirection: 'row',
+  safeArea: {
+    flex: 1,
+    backgroundColor: '#3F963F',
+    width: '100%',
+  },
+  scene: {
+    flex: 1,
+    overflow: 'hidden',
+    backgroundColor: '#3F963F',
+    width: '100%',
+  },
+  groundBackground: {
+    ...StyleSheet.absoluteFillObject,
+    height: '100%',
+    width: '100%',
+  },
+  forestTreeLayer: {
+    zIndex: 1,
+  },
+  forestLeafLayer: {
+    zIndex: 2,
+  },
+  currentTreeWrap: {
+    position: 'absolute',
+    left: 0,
+    right: 0,
+    zIndex: 3,
     alignItems: 'center',
+  },
+  currentTreeLayerStack: {
+    position: 'relative',
+    overflow: 'visible',
+  },
+  currentTreeBaseClip: {
+    position: 'absolute',
+    left: 0,
+    right: 0,
+    overflow: 'hidden',
+  },
+  currentTreeLeafClip: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    overflow: 'hidden',
+  },
+  currentTreeLeafClipLeft: {
+    transformOrigin: '85% 92%',
+  },
+  currentTreeLeafClipCenter: {
+    transformOrigin: '50% 94%',
+  },
+  currentTreeLeafClipRight: {
+    transformOrigin: '15% 92%',
+  },
+  currentTreeImage: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+  },
+  roamingAnimalWrap: {
+    position: 'absolute',
+    left: 0,
+    zIndex: 4,
+  },
+  roamingAnimalFacing: ROAMING_ANIMAL_FACING_FRAME,
+  roamingAnimalPoseLayer: {
+    position: 'absolute',
+    top: 0,
+    right: 0,
+    bottom: 0,
+    left: 0,
+  },
+  roamingAnimalPoseVisible: {
+    opacity: 1,
+  },
+  roamingAnimalPoseHidden: {
+    opacity: 0,
+  },
+  roamingAnimalImage: {
+    width: '100%',
+    height: '100%',
+  },
+  growthSheet: {
+    position: 'absolute',
+    left: 0,
+    right: 0,
+    bottom: 0,
+    height: 410,
+    zIndex: 12,
+  },
+  pullTabHitArea: {
+    position: 'absolute',
+    top: -48,
+    left: 0,
+    right: 0,
+    zIndex: 20,
+    height: 60,
+    alignItems: 'center',
+    justifyContent: 'flex-start',
+    paddingTop: 24,
+  },
+  pullTabClip: {
+    width: 86,
+    height: 24,
+    overflow: 'hidden',
+    alignItems: 'center',
+  },
+  pullTab: {
+    width: 86,
+    height: 43,
+    borderTopLeftRadius: 43,
+    borderTopRightRadius: 43,
+    backgroundColor: '#FF6628',
+    alignItems: 'center',
+    justifyContent: 'flex-start',
+    paddingTop: 11,
+    ...pullTabShadow,
+  },
+  pullTabArrow: {
+    width: 0,
+    height: 0,
+    borderLeftWidth: 8,
+    borderRightWidth: 8,
+    borderBottomWidth: 10,
+    borderLeftColor: 'transparent',
+    borderRightColor: 'transparent',
+    borderBottomColor: '#FFFFFF',
+  },
+  sheetContent: {
+    flex: 1,
+    borderTopLeftRadius: 30,
+    borderTopRightRadius: 30,
+    paddingHorizontal: 0,
+    paddingTop: 0,
+    paddingBottom: 0,
+    backgroundColor: 'rgba(255, 255, 255, 0.96)',
+    ...sheetContentShadow,
+  },
+  sheetBody: {
+    position: 'relative',
+    paddingHorizontal: 18,
+    paddingTop: 39,
+    paddingBottom: 88,
+    gap: 9,
+  },
+  sheetDragZone: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    height: 56,
+    zIndex: 6,
+    alignItems: 'center',
+    justifyContent: 'flex-start',
+    paddingTop: 9,
+  },
+  sheetDragHandle: {
+    width: 42,
+    height: 5,
+    borderRadius: 3,
+    backgroundColor: 'rgba(42, 28, 19, 0.32)',
+  },
+  seedProgressCard: {
+    borderRadius: 14,
+    paddingHorizontal: 13,
+    paddingVertical: 12,
+    backgroundColor: '#FFFFFF',
+    borderWidth: 1,
+    borderColor: 'rgba(42, 28, 19, 0.07)',
+    ...stageProgressCardShadow,
+  },
+  seedProgressTopRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'flex-start',
     gap: 12,
   },
-  messageText: {
+  seedProgressColumn: {
+    minWidth: 0,
     flex: 1,
-    fontSize: 14,
-    lineHeight: 20,
+  },
+  seedProgressColumnRight: {
+    alignItems: 'flex-end',
+  },
+  seedProgressLabel: {
+    color: '#69543a',
+    fontSize: 10,
+    lineHeight: 12,
+    fontWeight: '900',
+    textTransform: 'uppercase',
+  },
+  seedProgressValue: {
+    marginTop: 3,
+    color: '#2a1c13',
+    fontSize: 19,
+    lineHeight: 22,
+    fontWeight: '900',
+  },
+  seedProgressPercent: {
+    marginTop: 3,
+    color: '#C7430E',
+    fontSize: 19,
+    lineHeight: 22,
+    fontWeight: '900',
+  },
+  stageProgressTrack: {
+    height: 8,
+    marginTop: 11,
+    borderRadius: 6,
+    overflow: 'hidden',
+    backgroundColor: 'rgba(255, 138, 91, 0.18)',
+  },
+  stageProgressFill: {
+    height: '100%',
+    borderRadius: 6,
+    backgroundColor: '#FF6628',
+  },
+  verseCard: {
+    borderRadius: 12,
+    paddingHorizontal: 12,
+    paddingVertical: 9,
+    backgroundColor: 'rgba(255, 243, 214, 0.82)',
+    borderWidth: 1,
+    borderColor: 'rgba(255, 102, 40, 0.14)',
+  },
+  verseTheme: {
+    color: '#C7430E',
+    fontSize: 11,
+    lineHeight: 13,
+    fontWeight: '900',
+    textTransform: 'uppercase',
+  },
+  verseExcerpt: {
+    marginTop: 4,
+    color: '#2a1c13',
+    fontSize: 12,
+    lineHeight: 16,
+    fontWeight: '900',
+  },
+  verseReference: {
+    marginTop: 3,
+    color: '#69543a',
+    fontSize: 10,
+    lineHeight: 12,
     fontWeight: '800',
   },
-  missionsGrid: {
+  sheetActionGrid: {
+    flexDirection: 'row',
     gap: 10,
   },
-  missionCard: {
-    minHeight: 68,
+  sheetActionTile: {
+    flex: 1,
+    minHeight: 96,
     borderRadius: 18,
+    paddingHorizontal: 8,
+    paddingVertical: 11,
+    backgroundColor: '#FFFDF8',
+    borderWidth: 1,
+    borderColor: 'rgba(42, 28, 19, 0.12)',
+    flexDirection: 'column',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 6,
+    ...stageProgressCardShadow,
+  },
+  sheetActionIcon: {
+    width: 50,
+    height: 50,
+    borderRadius: 16,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: '#FFF0D7',
+    borderWidth: 1,
+    borderColor: 'rgba(255, 102, 40, 0.14)',
+  },
+  sheetActionIconImage: {
+    width: 43,
+    height: 43,
+  },
+  sheetActionTilePressed: {
+    transform: [{ scale: 0.985 }],
+    backgroundColor: '#FFF6E6',
+  },
+  sheetActionCopy: {
+    minWidth: 0,
+    alignItems: 'center',
+  },
+  sheetActionTitle: {
+    color: '#2a1c13',
+    fontSize: 12,
+    lineHeight: 15,
+    fontWeight: '900',
+    textAlign: 'center',
+  },
+  adminTreeControls: {
+    gap: 7,
+  },
+  adminTreeToggle: {
+    minHeight: 46,
+    borderRadius: 23,
+    paddingHorizontal: 15,
+    paddingVertical: 10,
+    backgroundColor: 'rgba(255, 102, 40, 0.12)',
+    borderWidth: 1,
+    borderColor: 'rgba(255, 102, 40, 0.24)',
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+  },
+  adminTreeTogglePressed: {
+    transform: [{ scale: 0.99 }],
+    backgroundColor: 'rgba(255, 102, 40, 0.18)',
+  },
+  adminTreeToggleText: {
+    color: '#2a1c13',
+    fontSize: 13,
+    lineHeight: 16,
+    fontWeight: '900',
+  },
+  adminTreeToggleValue: {
+    color: '#C7430E',
+    fontSize: 13,
+    lineHeight: 16,
+    fontWeight: '900',
+  },
+  adminTreeActions: {
+    flexDirection: 'row',
+    gap: 8,
+  },
+  adminTreeAction: {
+    flex: 1,
+    minHeight: 44,
+    borderRadius: 22,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: '#FFF7EA',
+    borderWidth: 1,
+    borderColor: 'rgba(42, 28, 19, 0.12)',
+  },
+  adminTreeActionPrimary: {
+    backgroundColor: '#FF6628',
+    borderColor: '#FF6628',
+  },
+  adminTreeActionPressed: {
+    opacity: 0.72,
+  },
+  adminTreeActionText: {
+    color: '#513c25',
+    fontSize: 12,
+    lineHeight: 15,
+    fontWeight: '900',
+  },
+  adminTreeActionPrimaryText: {
+    color: '#FFFFFF',
+  },
+  adminTreeError: {
+    color: '#C7430E',
+    fontSize: 11,
+    lineHeight: 14,
+    fontWeight: '800',
+  },
+  overlayScreen: {
+    flex: 1,
+    backgroundColor: '#F8F3EA',
+  },
+  overlayHeader: {
+    minHeight: 70,
     paddingHorizontal: 14,
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 12,
+    borderBottomWidth: 1,
+    borderBottomColor: 'rgba(42, 28, 19, 0.08)',
+    backgroundColor: 'rgba(255, 255, 255, 0.78)',
   },
-  missionIcon: {
-    width: 42,
-    height: 42,
+  overlayHeaderSpacer: {
+    width: 44,
+    height: 44,
+  },
+  overlayHeaderTitle: {
+    flex: 1,
+    color: '#2a1c13',
+    fontSize: 21,
+    lineHeight: 25,
+    fontWeight: '900',
+    textAlign: 'center',
+  },
+  overlayCloseButton: {
+    width: 44,
+    height: 44,
     borderRadius: 16,
-    backgroundColor: 'rgba(255,255,255,0.55)',
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: '#FFFDF8',
+    borderWidth: 1,
+    borderColor: 'rgba(42, 28, 19, 0.14)',
+  },
+  overlayCloseText: {
+    color: '#2a1c13',
+    fontSize: 28,
+    lineHeight: 30,
+    fontWeight: '800',
+  },
+  forestOverlayBody: {
+    flex: 1,
+    paddingHorizontal: 24,
+    paddingTop: 34,
+    alignItems: 'center',
+  },
+  forestOverlayHero: {
+    width: 224,
+    height: 224,
+    borderRadius: 112,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: 'rgba(255, 243, 214, 0.92)',
+    ...stageProgressCardShadow,
+  },
+  forestOverlayTree: {
+    width: 190,
+    height: 190,
+  },
+  overlayTitle: {
+    marginTop: 22,
+    color: '#2a1c13',
+    fontSize: 29,
+    lineHeight: 34,
+    fontWeight: '900',
+    textAlign: 'center',
+  },
+  overlayCopy: {
+    maxWidth: 300,
+    marginTop: 10,
+    color: '#513c25',
+    fontSize: 14,
+    lineHeight: 20,
+    fontWeight: '800',
+    textAlign: 'center',
+  },
+  wheelContent: {
+    minHeight: '100%',
+    alignItems: 'center',
+    paddingTop: 36,
+    paddingBottom: 42,
+  },
+  wheelSlide: {
+    minHeight: 470,
+    justifyContent: 'center',
+  },
+  wheelCard: {
+    minHeight: 430,
+    borderRadius: 30,
+    paddingHorizontal: 22,
+    paddingVertical: 26,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: '#FFFDF8',
+    borderWidth: 1,
+    borderColor: 'rgba(42, 28, 19, 0.08)',
+    ...stageProgressCardShadow,
+  },
+  wheelCardUnlocked: {
+    backgroundColor: '#FFF8E8',
+    borderColor: 'rgba(255, 102, 40, 0.18)',
+  },
+  wheelCardSelected: {
+    borderColor: 'rgba(255, 102, 40, 0.38)',
+  },
+  wheelCardPressed: {
+    transform: [{ scale: 0.985 }],
+  },
+  wheelArtFrame: {
+    width: 188,
+    height: 206,
+    borderRadius: 30,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: 'rgba(255, 243, 214, 0.86)',
+    overflow: 'hidden',
+  },
+  wheelTreeImage: {
+    width: 178,
+    height: 178,
+  },
+  wheelStatus: {
+    marginTop: 20,
+    color: '#C7430E',
+    fontSize: 11,
+    lineHeight: 13,
+    fontWeight: '900',
+    textTransform: 'uppercase',
+  },
+  wheelTitle: {
+    marginTop: 7,
+    color: '#2a1c13',
+    fontSize: 28,
+    lineHeight: 32,
+    fontWeight: '900',
+    textAlign: 'center',
+  },
+  wheelMeta: {
+    marginTop: 5,
+    color: '#69543a',
+    fontSize: 13,
+    lineHeight: 16,
+    fontWeight: '900',
+    textAlign: 'center',
+  },
+  wheelHint: {
+    maxWidth: 226,
+    marginTop: 15,
+    color: '#513c25',
+    fontSize: 13,
+    lineHeight: 18,
+    fontWeight: '800',
+    textAlign: 'center',
+  },
+  collectionWheelCard: {
+    minHeight: 440,
+  },
+  mapWheelCard: {
+    minHeight: 436,
+  },
+  mapReferenceCard: {
+    minHeight: 452,
+    borderRadius: 22,
+    padding: 10,
+    backgroundColor: '#FFFDF8',
+    borderWidth: 1,
+    borderColor: 'rgba(42, 28, 19, 0.1)',
+    ...stageProgressCardShadow,
+  },
+  mapReferenceCardCurrent: {
+    backgroundColor: '#FFF8EA',
+    borderColor: 'rgba(198, 95, 42, 0.38)',
+  },
+  mapReferenceCardLocked: {
+    backgroundColor: '#F3EBDD',
+    borderColor: 'rgba(42, 28, 19, 0.08)',
+  },
+  mapReferenceArt: {
+    height: 252,
+    borderRadius: 16,
+    overflow: 'hidden',
+    backgroundColor: '#FFF3D6',
+  },
+  mapReferenceImage: {
+    width: '100%',
+    height: '100%',
+  },
+  mapReferenceImageLocked: {
+    opacity: 0.28,
+    tintColor: '#1F1711',
+  },
+  mapReferenceLockedShade: {
+    ...StyleSheet.absoluteFillObject,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: 'rgba(42, 28, 19, 0.18)',
+  },
+  mapReferenceLockedText: {
+    overflow: 'hidden',
+    borderRadius: 999,
+    paddingHorizontal: 13,
+    paddingVertical: 7,
+    color: '#FFFDF8',
+    fontSize: 11,
+    lineHeight: 13,
+    fontWeight: '900',
+    backgroundColor: 'rgba(42, 28, 19, 0.62)',
+    textTransform: 'uppercase',
+  },
+  mapReferenceBody: {
+    paddingHorizontal: 8,
+    paddingTop: 17,
+    paddingBottom: 8,
+  },
+  mapReferenceKicker: {
+    color: '#C65F2A',
+    fontSize: 10,
+    lineHeight: 12,
+    fontWeight: '900',
+    textTransform: 'uppercase',
+  },
+  mapReferenceKickerCurrent: {
+    color: '#5F7F4D',
+  },
+  mapReferenceKickerLocked: {
+    color: '#8B7B68',
+  },
+  mapReferenceTitle: {
+    marginTop: 6,
+    color: '#2a1c13',
+    fontSize: 26,
+    lineHeight: 31,
+    fontWeight: '900',
+  },
+  mapReferenceTitleLocked: {
+    color: '#5D503F',
+  },
+  mapReferenceCopy: {
+    marginTop: 7,
+    color: '#513c25',
+    fontSize: 13,
+    lineHeight: 18,
+    fontWeight: '800',
+  },
+  mapReferenceSelectButton: {
+    minHeight: 48,
+    marginTop: 18,
+    borderRadius: 14,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: '#C65F2A',
+    borderWidth: 1,
+    borderColor: '#C65F2A',
+  },
+  mapReferenceSelectButtonCurrent: {
+    backgroundColor: '#5F7F4D',
+    borderColor: '#5F7F4D',
+  },
+  mapReferenceSelectButtonDisabled: {
+    backgroundColor: 'rgba(245, 237, 224, 0.84)',
+    borderColor: 'rgba(42, 28, 19, 0.07)',
+  },
+  mapReferenceSelectButtonPressed: {
+    transform: [{ scale: 0.985 }],
+  },
+  mapReferenceSelectText: {
+    color: '#FFFFFF',
+    fontSize: 13,
+    lineHeight: 16,
+    fontWeight: '900',
+  },
+  mapReferenceSelectTextCurrent: {
+    color: '#FFFFFF',
+  },
+  mapReferenceSelectTextDisabled: {
+    color: '#8B7B68',
+  },
+  mapWheelIllustration: {
+    width: 204,
+    height: 218,
+    borderRadius: 28,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: 'rgba(255, 243, 214, 0.86)',
+    overflow: 'hidden',
+  },
+  mapWheelImage: {
+    width: '100%',
+    height: '100%',
+  },
+  mapWheelImageLocked: {
+    opacity: 0.32,
+    tintColor: '#1F1711',
+  },
+  mapWheelLockedShade: {
+    ...StyleSheet.absoluteFillObject,
+    backgroundColor: 'rgba(42, 28, 19, 0.18)',
+  },
+  mapWheelCircle: {
+    position: 'absolute',
+    width: 150,
+    height: 150,
+    borderRadius: 75,
+    borderWidth: 2,
+    borderColor: 'rgba(81, 60, 37, 0.28)',
+    backgroundColor: 'rgba(255, 255, 255, 0.34)',
+  },
+  mapWheelPin: {
+    width: 64,
+    height: 64,
+    borderRadius: 32,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: '#FF6628',
+    ...pullTabShadow,
+  },
+  mapWheelLockedShape: {
+    width: 118,
+    height: 96,
+    borderRadius: 42,
+    backgroundColor: '#1F1711',
+    opacity: 0.9,
+  },
+  mapOverlayBody: {
+    flex: 1,
+    paddingHorizontal: 20,
+    paddingTop: 24,
+    flexDirection: 'row',
+    gap: 16,
+  },
+  mapPreviewCard: {
+    flex: 1,
+    minHeight: 292,
+    alignSelf: 'flex-start',
+    borderRadius: 28,
+    padding: 20,
+    backgroundColor: '#FFFDF8',
+    borderWidth: 1,
+    borderColor: 'rgba(42, 28, 19, 0.08)',
+    overflow: 'hidden',
+    ...stageProgressCardShadow,
+  },
+  mapPreviewEyebrow: {
+    color: '#C7430E',
+    fontSize: 11,
+    lineHeight: 13,
+    fontWeight: '900',
+    textTransform: 'uppercase',
+  },
+  mapPreviewTitle: {
+    marginTop: 7,
+    color: '#2a1c13',
+    fontSize: 27,
+    lineHeight: 32,
+    fontWeight: '900',
+  },
+  mapPreviewCopy: {
+    marginTop: 7,
+    color: '#69543a',
+    fontSize: 13,
+    lineHeight: 18,
+    fontWeight: '800',
+  },
+  mapPathLine: {
+    position: 'absolute',
+    left: 30,
+    right: 30,
+    bottom: 72,
+    height: 5,
+    borderRadius: 4,
+    backgroundColor: 'rgba(255, 102, 40, 0.2)',
+  },
+  mapSeedPin: {
+    position: 'absolute',
+    bottom: 44,
+    left: '50%',
+    width: 58,
+    height: 58,
+    marginLeft: -29,
+    borderRadius: 29,
+    backgroundColor: '#FF6628',
     alignItems: 'center',
     justifyContent: 'center',
   },
-  missionTextBlock: {
-    flex: 1,
+  mapWheel: {
+    width: 116,
+    gap: 10,
+    justifyContent: 'center',
   },
-  missionTitle: {
+  mapWheelItem: {
+    minHeight: 72,
+    borderRadius: 24,
+    paddingHorizontal: 13,
+    paddingVertical: 11,
+    justifyContent: 'center',
+    backgroundColor: 'rgba(255, 255, 255, 0.58)',
+    borderWidth: 1,
+    borderColor: 'rgba(42, 28, 19, 0.08)',
+    opacity: 0.58,
+  },
+  mapWheelItemSelected: {
+    minHeight: 92,
+    backgroundColor: '#FF6628',
+    borderColor: '#FF6628',
+    opacity: 1,
+    ...stageProgressCardShadow,
+  },
+  mapWheelTitle: {
+    color: '#513c25',
+    fontSize: 13,
+    lineHeight: 16,
+    fontWeight: '900',
+    textAlign: 'center',
+  },
+  mapWheelTitleSelected: {
+    color: '#FFFFFF',
     fontSize: 16,
+    lineHeight: 20,
+  },
+  mapWheelSubtitle: {
+    marginTop: 4,
+    color: '#69543a',
+    fontSize: 9,
+    lineHeight: 12,
+    fontWeight: '800',
+    textAlign: 'center',
+  },
+  mapWheelSubtitleSelected: {
+    color: 'rgba(255, 255, 255, 0.86)',
+  },
+  forestDioramaContent: {
+    paddingHorizontal: 18,
+    paddingTop: 12,
+    paddingBottom: 34,
+    alignItems: 'center',
+  },
+  forestDioramaEyebrow: {
+    color: '#C7430E',
+    fontSize: 10,
+    lineHeight: 12,
+    fontWeight: '900',
+    textTransform: 'uppercase',
+  },
+  forestDioramaTitle: {
+    marginTop: 5,
+    color: '#2a1c13',
+    fontSize: 30,
+    lineHeight: 34,
+    fontWeight: '900',
+    textAlign: 'center',
+  },
+  forestDioramaCopy: {
+    maxWidth: 318,
+    marginTop: 8,
+    color: '#513c25',
+    fontSize: 13,
+    lineHeight: 18,
+    fontWeight: '800',
+    textAlign: 'center',
+  },
+  forestDioramaStage: {
+    width: '100%',
+    maxWidth: 372,
+    height: 370,
+    marginTop: 18,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  forestDioramaPlatformShadow: {
+    position: 'absolute',
+    bottom: 34,
+    width: '86%',
+    height: 54,
+    borderRadius: 44,
+    backgroundColor: 'rgba(42, 28, 19, 0.18)',
+    transform: [{ scaleX: 1.02 }],
+  },
+  forestDioramaPlatform: {
+    position: 'relative',
+    width: '92%',
+    height: 300,
+    borderRadius: 36,
+    overflow: 'hidden',
+    backgroundColor: '#D8E8C9',
+    borderWidth: 1,
+    borderColor: 'rgba(42, 28, 19, 0.08)',
+    shadowColor: '#2a1c13',
+    shadowOpacity: 0.12,
+    shadowRadius: 18,
+    shadowOffset: { width: 0, height: 10 },
+    elevation: 4,
+  },
+  forestDioramaPlatformTop: {
+    ...StyleSheet.absoluteFillObject,
+    borderRadius: 36,
+    backgroundColor: 'rgba(226, 241, 210, 0.62)',
+  },
+  forestDioramaSoftRowOne: {
+    position: 'absolute',
+    left: -34,
+    right: -34,
+    top: 84,
+    height: 54,
+    borderRadius: 52,
+    backgroundColor: 'rgba(255, 255, 255, 0.13)',
+    transform: [{ rotate: '-9deg' }],
+  },
+  forestDioramaSoftRowTwo: {
+    position: 'absolute',
+    left: -44,
+    right: -24,
+    bottom: 54,
+    height: 62,
+    borderRadius: 56,
+    backgroundColor: 'rgba(105, 84, 58, 0.06)',
+    transform: [{ rotate: '8deg' }],
+  },
+  forestDioramaSlot: {
+    position: 'absolute',
+    width: 82,
+    height: 104,
+    alignItems: 'center',
+    justifyContent: 'flex-end',
+  },
+  forestDioramaPlantShadow: {
+    position: 'absolute',
+    bottom: 3,
+    width: 52,
+    height: 13,
+    borderRadius: 999,
+    backgroundColor: 'rgba(42, 28, 19, 0.16)',
+  },
+  forestDioramaTree: {
+    width: 92,
+    height: 104,
+  },
+  forestDioramaEmptyPlant: {
+    width: 21,
+    height: 9,
+    marginBottom: 7,
+    borderRadius: 999,
+    backgroundColor: 'rgba(105, 84, 58, 0.16)',
+  },
+  forestDioramaList: {
+    width: '100%',
+    maxWidth: 372,
+    marginTop: 6,
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 8,
+    justifyContent: 'center',
+  },
+  forestDioramaChip: {
+    minHeight: 44,
+    maxWidth: 168,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    borderRadius: 22,
+    paddingLeft: 7,
+    paddingRight: 12,
+    backgroundColor: '#FFFDF8',
+    borderWidth: 1,
+    borderColor: 'rgba(42, 28, 19, 0.07)',
+  },
+  forestDioramaChipImageWrap: {
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: 'rgba(255, 243, 214, 0.9)',
+  },
+  forestDioramaChipImage: {
+    width: 30,
+    height: 30,
+  },
+  forestDioramaChipText: {
+    flexShrink: 1,
+    color: '#513c25',
+    fontSize: 11,
+    lineHeight: 14,
     fontWeight: '900',
   },
-  missionBody: {
+  forestDioramaEmptyCard: {
+    width: '100%',
+    maxWidth: 330,
+    marginTop: 8,
+    borderRadius: 20,
+    paddingHorizontal: 18,
+    paddingVertical: 16,
+    alignItems: 'center',
+    backgroundColor: '#FFFDF8',
+    borderWidth: 1,
+    borderColor: 'rgba(42, 28, 19, 0.08)',
+  },
+  forestDioramaEmptyTitle: {
+    color: '#2a1c13',
+    fontSize: 15,
+    lineHeight: 18,
+    fontWeight: '900',
+  },
+  forestDioramaEmptyCopy: {
+    marginTop: 6,
+    color: '#69543a',
+    fontSize: 12,
+    lineHeight: 16,
+    fontWeight: '800',
+    textAlign: 'center',
+  },
+  collectionScreen: {
+    flex: 1,
+    backgroundColor: '#F8F3EA',
+  },
+  collectionScreenHeader: {
+    minHeight: 78,
+    paddingHorizontal: 14,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    borderBottomWidth: 1,
+    borderBottomColor: 'rgba(42, 28, 19, 0.08)',
+    backgroundColor: 'rgba(255, 255, 255, 0.74)',
+  },
+  collectionHeaderTitleBlock: {
+    minWidth: 0,
+    flex: 1,
+    alignItems: 'center',
+    paddingHorizontal: 10,
+  },
+  collectionHeaderButton: {
+    minWidth: 54,
+    height: 44,
+    borderRadius: 14,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: '#FFFDF8',
+    borderWidth: 1,
+    borderColor: 'rgba(42, 28, 19, 0.12)',
+  },
+  collectionHeaderButtonPlaceholder: {
+    width: 54,
+    height: 44,
+  },
+  collectionHeaderButtonText: {
+    color: '#2a1c13',
     fontSize: 13,
+    lineHeight: 16,
+    fontWeight: '900',
+  },
+  collectionHeaderLogoFrame: {
+    minHeight: 24,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  collectionHeaderLogoImage: {
+    width: 94,
+    height: 24,
+  },
+  collectionModalEyebrow: {
+    color: '#69543a',
+    fontSize: 10,
+    lineHeight: 12,
+    fontWeight: '900',
+    textTransform: 'uppercase',
+  },
+  collectionModalTitle: {
+    marginTop: 4,
+    color: '#2a1c13',
+    fontSize: 16,
+    lineHeight: 20,
+    fontWeight: '900',
+    textAlign: 'center',
+  },
+  collectionModalClose: {
+    width: 44,
+    height: 44,
+    borderRadius: 16,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: '#FFFDF8',
+    borderWidth: 1,
+    borderColor: 'rgba(42, 28, 19, 0.14)',
+  },
+  collectionModalCloseText: {
+    color: '#2a1c13',
+    fontSize: 28,
+    lineHeight: 30,
+    fontWeight: '800',
+  },
+  collectionTabs: {
+    minHeight: 56,
+    paddingHorizontal: 18,
+    flexDirection: 'row',
+    gap: 10,
+    alignItems: 'center',
+    borderBottomWidth: 1,
+    borderBottomColor: 'rgba(42, 28, 19, 0.07)',
+    backgroundColor: 'rgba(255, 255, 255, 0.48)',
+  },
+  collectionTab: {
+    flex: 1,
+    minHeight: 38,
+    borderRadius: 13,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: '#FFFDF8',
+    borderWidth: 1,
+    borderColor: 'rgba(42, 28, 19, 0.09)',
+  },
+  collectionTabActive: {
+    backgroundColor: '#C65F2A',
+    borderColor: '#C65F2A',
+  },
+  collectionTabText: {
+    color: '#69543a',
+    fontSize: 13,
+    lineHeight: 16,
+    fontWeight: '900',
+  },
+  collectionTabTextActive: {
+    color: '#FFFFFF',
+  },
+  collectionSlides: {
+    flex: 1,
+  },
+  collectionDexGridContent: {
+    paddingHorizontal: 12,
+    paddingTop: 14,
+    paddingBottom: 32,
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 8,
+  },
+  collectionDexCard: {
+    minHeight: 158,
+    borderRadius: 14,
+    paddingHorizontal: 8,
+    paddingTop: 8,
+    paddingBottom: 8,
+    backgroundColor: '#FFFDF8',
+    borderWidth: 1,
+    borderColor: 'rgba(42, 28, 19, 0.1)',
+    shadowColor: '#2a1c13',
+    shadowOpacity: 0.06,
+    shadowRadius: 6,
+    shadowOffset: { width: 0, height: 3 },
+    elevation: 1,
+  },
+  collectionDexCardUnlocked: {
+    backgroundColor: '#FFFFFF',
+    borderColor: 'rgba(198, 95, 42, 0.22)',
+  },
+  collectionDexCardSelectedAnimal: {
+    backgroundColor: '#FFF8EA',
+    borderColor: 'rgba(95, 127, 77, 0.46)',
+  },
+  collectionDexCardPressed: {
+    transform: [{ scale: 0.98 }],
+  },
+  collectionDexHeader: {
+    minHeight: 18,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 5,
+  },
+  collectionDexNumber: {
+    overflow: 'hidden',
+    borderRadius: 999,
+    paddingHorizontal: 5,
+    paddingVertical: 2,
+    color: '#2a1c13',
+    fontSize: 8,
+    lineHeight: 10,
+    fontWeight: '900',
+    backgroundColor: '#8CCB68',
+  },
+  collectionDexNumberAnimal: {
+    backgroundColor: '#FF8A5B',
+  },
+  collectionDexNumberLocked: {
+    color: '#513c25',
+    backgroundColor: '#D9D4C9',
+  },
+  collectionDexName: {
+    minWidth: 0,
+    flex: 1,
+    color: '#513c25',
+    fontSize: 10,
+    lineHeight: 12,
+    fontWeight: '900',
+    textTransform: 'lowercase',
+  },
+  collectionDexArt: {
+    flex: 1,
+    minHeight: 88,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  collectionDexImage: {
+    width: 68,
+    height: 68,
+  },
+  collectionDexAnimalImage: {
+    width: 86,
+    height: 86,
+  },
+  collectionDexLockedTreeImage: {
+    width: 74,
+    height: 74,
+    opacity: 0.9,
+  },
+  collectionDexSilhouetteScale: {
+    transform: [{ scale: 0.52 }],
+  },
+  collectionDexAnimalSilhouetteScale: {
+    transform: [{ scale: 0.68 }],
+  },
+  collectionDexFooter: {
+    minHeight: 28,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: 5,
+  },
+  collectionDexFooterText: {
+    flexShrink: 1,
+    color: '#C65F2A',
+    fontSize: 8,
+    lineHeight: 10,
+    fontWeight: '900',
+  },
+  collectionDexSelectButton: {
+    minWidth: 48,
+    minHeight: 26,
+    borderRadius: 10,
+    paddingHorizontal: 7,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: '#C65F2A',
+    borderWidth: 1,
+    borderColor: '#C65F2A',
+  },
+  collectionDexSelectButtonActive: {
+    backgroundColor: '#5F7F4D',
+    borderColor: '#5F7F4D',
+  },
+  collectionDexSelectButtonDisabled: {
+    backgroundColor: '#E8DFD0',
+    borderColor: 'rgba(42, 28, 19, 0.08)',
+  },
+  collectionDexSelectButtonPressed: {
+    transform: [{ scale: 0.97 }],
+  },
+  collectionDexSelectText: {
+    color: '#FFFFFF',
+    fontSize: 8,
+    lineHeight: 10,
+    fontWeight: '900',
+  },
+  collectionDexSelectTextActive: {
+    color: '#FFFFFF',
+  },
+  collectionDexSelectTextDisabled: {
+    color: '#8B7B68',
+  },
+  collectionSlidesContent: {
+    alignItems: 'stretch',
+  },
+  collectionSlide: {
+    flex: 1,
+    paddingHorizontal: 24,
+    paddingTop: 26,
+    paddingBottom: 30,
+  },
+  collectionSlideCard: {
+    flex: 1,
+    borderRadius: 28,
+    paddingHorizontal: 24,
+    paddingVertical: 28,
+    backgroundColor: '#FFFDF8',
+    borderWidth: 1,
+    borderColor: 'rgba(42, 28, 19, 0.08)',
+    alignItems: 'center',
+    justifyContent: 'center',
+    ...stageProgressCardShadow,
+  },
+  collectionSlideCardPressed: {
+    transform: [{ scale: 0.99 }],
+  },
+  collectionUnlockedArt: {
+    width: 178,
+    height: 178,
+    borderRadius: 89,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: 'rgba(255, 243, 214, 0.92)',
+  },
+  collectionUnlockedImage: {
+    width: 160,
+    height: 160,
+  },
+  collectionSilhouetteWrap: {
+    width: 128,
+    height: 112,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  collectionSilhouetteImage: {
+    width: 118,
+    height: 104,
+    opacity: 0.94,
+  },
+  collectionSilhouetteAnimalImage: {
+    width: 108,
+    height: 98,
+  },
+  collectionSilhouetteBody: {
+    backgroundColor: '#1F1711',
+  },
+  treeSilhouetteBody: {
+    width: 98,
+    height: 78,
+    borderTopLeftRadius: 52,
+    borderTopRightRadius: 44,
+    borderBottomLeftRadius: 38,
+    borderBottomRightRadius: 48,
+  },
+  treeSilhouetteTrunk: {
+    width: 24,
+    height: 34,
+    marginTop: -9,
+    borderRadius: 12,
+    backgroundColor: '#1F1711',
+  },
+  animalSilhouetteBody: {
+    width: 92,
+    height: 78,
+    borderRadius: 42,
+  },
+  animalSilhouetteEar: {
+    position: 'absolute',
+    top: 16,
+    right: 22,
+    width: 28,
+    height: 28,
+    borderRadius: 16,
+    backgroundColor: '#1F1711',
+  },
+  collectionSlideStatus: {
+    marginTop: 18,
+    color: '#C7430E',
+    fontSize: 11,
+    lineHeight: 13,
+    fontWeight: '900',
+    textTransform: 'uppercase',
+  },
+  collectionSlideName: {
+    marginTop: 6,
+    color: '#2a1c13',
+    fontSize: 28,
+    lineHeight: 32,
+    fontWeight: '900',
+    textAlign: 'center',
+  },
+  collectionSlideMeta: {
+    marginTop: 5,
+    color: '#69543a',
+    fontSize: 13,
+    lineHeight: 16,
+    fontWeight: '900',
+    textAlign: 'center',
+  },
+  collectionSlideHint: {
+    maxWidth: 260,
+    marginTop: 16,
+    color: '#513c25',
+    fontSize: 13,
+    lineHeight: 18,
     fontWeight: '700',
-    marginTop: 3,
+    textAlign: 'center',
+  },
+  collectionDetailScroll: {
+    flex: 1,
+  },
+  collectionDetailContent: {
+    paddingHorizontal: 22,
+    paddingTop: 24,
+    paddingBottom: 38,
+  },
+  treeDetailHero: {
+    alignSelf: 'center',
+    width: 188,
+    height: 188,
+    borderRadius: 94,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: 'rgba(255, 243, 214, 0.92)',
+  },
+  treeDetailHeroImage: {
+    width: 170,
+    height: 170,
+  },
+  treeDetailEyebrow: {
+    marginTop: 20,
+    color: '#C7430E',
+    fontSize: 11,
+    lineHeight: 13,
+    fontWeight: '900',
+    textTransform: 'uppercase',
+    textAlign: 'center',
+  },
+  treeDetailTitle: {
+    marginTop: 6,
+    color: '#2a1c13',
+    fontSize: 30,
+    lineHeight: 34,
+    fontWeight: '900',
+    textAlign: 'center',
+  },
+  treeDetailCopy: {
+    alignSelf: 'center',
+    maxWidth: 304,
+    marginTop: 8,
+    color: '#513c25',
+    fontSize: 13,
+    lineHeight: 18,
+    fontWeight: '800',
+    textAlign: 'center',
+  },
+  treeDetailStatsRow: {
+    marginTop: 14,
+    flexDirection: 'row',
+    gap: 10,
+  },
+  treeDetailStat: {
+    flex: 1,
+    minHeight: 74,
+    borderRadius: 18,
+    paddingHorizontal: 12,
+    paddingVertical: 12,
+    justifyContent: 'center',
+    backgroundColor: '#FFFDF8',
+    borderWidth: 1,
+    borderColor: 'rgba(42, 28, 19, 0.08)',
+  },
+  treeDetailStatValue: {
+    color: '#2a1c13',
+    fontSize: 15,
+    lineHeight: 18,
+    fontWeight: '900',
+  },
+  treeDetailStatLabel: {
+    marginTop: 5,
+    color: '#69543a',
+    fontSize: 10,
+    lineHeight: 12,
+    fontWeight: '900',
+    textTransform: 'uppercase',
+  },
+  treeDetailSection: {
+    marginTop: 16,
+    borderRadius: 20,
+    paddingHorizontal: 10,
+    paddingVertical: 13,
+    backgroundColor: '#FFFDF8',
+    borderWidth: 1,
+    borderColor: 'rgba(42, 28, 19, 0.08)',
+  },
+  treeDetailSectionTitle: {
+    color: '#2a1c13',
+    fontSize: 15,
+    lineHeight: 18,
+    fontWeight: '900',
+  },
+  treeDetailStageRow: {
+    marginTop: 11,
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    gap: 6,
+  },
+  treeDetailStageCell: {
+    minHeight: 78,
+    borderRadius: 13,
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: 4,
+    paddingVertical: 7,
+    backgroundColor: 'rgba(255, 243, 214, 0.55)',
+    borderWidth: 1,
+    borderColor: 'rgba(42, 28, 19, 0.06)',
+  },
+  treeDetailStageCellActive: {
+    borderColor: '#FF6628',
+    backgroundColor: 'rgba(255, 102, 40, 0.11)',
+  },
+  treeDetailStageCellPressed: {
+    transform: [{ scale: 0.97 }],
+  },
+  treeDetailStageImage: {
+    width: 36,
+    height: 36,
+  },
+  treeDetailStageSpecies: {
+    width: '100%',
+    marginTop: 5,
+    color: '#513c25',
+    fontSize: 7,
+    lineHeight: 9,
+    fontWeight: '900',
+    textAlign: 'center',
+  },
+  treeDetailStageLabel: {
+    marginTop: 2,
+    color: '#69543a',
+    fontSize: 7,
+    lineHeight: 9,
+    fontWeight: '900',
+  },
+  treeDetailVerseCard: {
+    marginTop: 16,
+    borderRadius: 18,
+    paddingHorizontal: 14,
+    paddingVertical: 13,
+    backgroundColor: 'rgba(255, 243, 214, 0.9)',
+    borderWidth: 1,
+    borderColor: 'rgba(255, 102, 40, 0.15)',
   },
 });

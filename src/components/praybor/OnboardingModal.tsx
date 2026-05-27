@@ -64,7 +64,7 @@ export function OnboardingModal({ visible, onClose }: { visible: boolean; onClos
             accessibilityLabel="Skip onboarding"
             onPress={onClose}
             style={styles.skipButton}>
-            <Text style={[styles.skipText, { color: colors.textSecondary }]}>Skip</Text>
+            <Text style={[styles.skipText, { color: colors.textTertiary }]}>Skip</Text>
           </Pressable>
         </View>
         <View style={styles.content}>
@@ -89,7 +89,7 @@ export function OnboardingModal({ visible, onClose }: { visible: boolean; onClos
           </View>
           <Pressable
             accessibilityRole="button"
-            accessibilityLabel={isLast ? 'Start using PrayBor' : 'Next onboarding slide'}
+            accessibilityLabel={isLast ? 'Start using Blessie' : 'Next onboarding slide'}
             onPress={next}
             style={[styles.nextButton, { backgroundColor: colors.accent }]}>
             <Text style={[styles.nextText, { color: colors.backgroundElement }]}>{isLast ? 'Start' : 'Next'}</Text>

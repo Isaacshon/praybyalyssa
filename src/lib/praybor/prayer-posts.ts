@@ -1,8 +1,15 @@
 import type { MoodId, PrayerDraft, PrayerIdentity, PrayerVisibility } from './domain';
+import {
+  applyPrayerVisibilityControls,
+  fetchPrayerSafetyControls,
+} from './content-safety';
+import { distanceKmBetween, type PrayerLocation } from './location';
 import type { PrayerCard } from './sample-data';
+import { ensureSupabaseProfile, getAsyncStorage, getSupabaseRuntime, warnServerFallback } from './session';
 
 export type PrayerPostRow = {
   id: string;
+  author_id?: string | null;
   title: string;
   body: string;
   mood: MoodId;
@@ -15,6 +22,9 @@ export type PrayerPostRow = {
   neighborhood?: string | null;
   paper_color?: string | null;
   pin_seed?: number | null;
+  location_lat?: number | null;
+  location_lng?: number | null;
+  distance_km?: number | null;
 };
 
 export type PrayerPostInsert = {
@@ -31,11 +41,21 @@ export type PrayerPostInsert = {
   neighborhood: string | null;
   paper_color: string | null;
   pin_seed: number | null;
+  location_lat: number | null;
+  location_lng: number | null;
 };
 
-const prayerPostsCacheKey = 'praybor.serverPrayerPostsCache.v1';
+const prayerPostsCacheKey = 'praybor.serverPrayerPostsCache.v2';
 const prayerPostSelect =
-  'id,title,body,mood,visibility,identity,is_sensitive,created_at,group_id,author_label,neighborhood,paper_color,pin_seed';
+  'id,author_id,title,body,mood,visibility,identity,is_sensitive,created_at,group_id,author_label,neighborhood,paper_color,pin_seed,location_lat,location_lng';
+const isWebRuntime =
+  typeof globalThis !== 'undefined' &&
+  typeof (globalThis as { document?: unknown }).document !== 'undefined';
+
+type PrayerPostFetchOptions = {
+  radiusKm?: number;
+  viewerLocation?: PrayerLocation | null;
+};
 
 export function getPrayerPostsCacheKey() {
   return prayerPostsCacheKey;
@@ -44,18 +64,23 @@ export function getPrayerPostsCacheKey() {
 export function mapPrayerPostRowToCard(row: PrayerPostRow): PrayerCard {
   return {
     id: row.id,
+    authorId: row.author_id ?? undefined,
     title: row.title,
     body: row.body,
     mood: row.mood,
     visibility: row.visibility,
     identity: row.identity,
-    authorLabel: row.author_label ?? (row.identity === 'anonymous' ? 'A neighbor' : 'You'),
-    neighborhood: row.neighborhood ?? (row.visibility === 'public' ? 'Midtown' : undefined),
+    authorLabel: row.author_label ?? defaultAuthorLabel(row.identity),
+    neighborhood: row.neighborhood ?? defaultNeighborhoodLabel(row.visibility),
     groupName: row.visibility === 'group' ? 'Friday House Church' : undefined,
-    postedAgo: 'now',
+    postedAgo: formatRelativeTime(row.created_at),
     isSensitive: row.is_sensitive ?? false,
     paperColor: row.paper_color ?? undefined,
     pinSeed: row.pin_seed ?? undefined,
+    location:
+      typeof row.location_lat === 'number' && typeof row.location_lng === 'number'
+        ? { latitude: row.location_lat, longitude: row.location_lng }
+        : undefined,
   };
 }
 
@@ -63,6 +88,7 @@ export function buildPrayerPostInsert(
   draft: PrayerDraft,
   authorId: string,
   groupId?: string,
+  location?: PrayerLocation | null,
 ): PrayerPostInsert {
   return {
     author_id: authorId,
@@ -74,22 +100,104 @@ export function buildPrayerPostInsert(
     body: draft.body,
     is_sensitive: false,
     created_at: draft.createdAt,
-    author_label: draft.identity === 'anonymous' ? 'A neighbor' : 'You',
-    neighborhood: draft.visibility === 'public' ? 'Midtown' : null,
+    author_label: defaultAuthorLabel(draft.identity),
+    neighborhood: null,
     paper_color: draft.paperColor ?? null,
     pin_seed: draft.pinSeed ?? null,
+    location_lat: draft.visibility === 'public' ? location?.latitude ?? null : null,
+    location_lng: draft.visibility === 'public' ? location?.longitude ?? null : null,
   };
 }
 
-export async function fetchPersistedPrayerCards(scope: PrayerVisibility): Promise<PrayerCard[]> {
+export function formatRelativeTime(value?: string | null, now = new Date()) {
+  if (!value) {
+    return 'recently';
+  }
+
+  const date = new Date(value);
+
+  if (Number.isNaN(date.getTime())) {
+    return 'recently';
+  }
+
+  const elapsedMs = Math.max(0, now.getTime() - date.getTime());
+  const elapsedMinutes = Math.floor(elapsedMs / 60000);
+
+  if (elapsedMinutes < 1) {
+    return 'now';
+  }
+
+  if (elapsedMinutes < 60) {
+    return `${elapsedMinutes}m`;
+  }
+
+  const elapsedHours = Math.floor(elapsedMinutes / 60);
+
+  if (elapsedHours < 24) {
+    return `${elapsedHours}h`;
+  }
+
+  const elapsedDays = Math.floor(elapsedHours / 24);
+
+  if (elapsedDays < 30) {
+    return `${elapsedDays}d`;
+  }
+
+  const elapsedMonths = Math.floor(elapsedDays / 30);
+
+  if (elapsedMonths < 12) {
+    return `${elapsedMonths}mo`;
+  }
+
+  return `${Math.floor(elapsedMonths / 12)}y`;
+}
+
+function defaultAuthorLabel(identity: PrayerIdentity) {
+  return identity === 'anonymous' ? 'A neighbor' : 'A Blessie neighbor';
+}
+
+function defaultNeighborhoodLabel(visibility: PrayerVisibility) {
+  return visibility === 'public' ? 'Nearby' : undefined;
+}
+
+export async function fetchPersistedPrayerCards(
+  scope: PrayerVisibility,
+  groupId?: string,
+  options: PrayerPostFetchOptions = {},
+): Promise<PrayerCard[]> {
   const { isSupabaseConfigured, supabase } = await getSupabaseRuntime();
 
   if (!isSupabaseConfigured || !supabase) {
-    return readCachedPrayerCards(scope);
+    return readCachedPrayerCards(scope, groupId);
   }
 
   try {
     await ensureSupabaseProfile();
+
+    if (scope === 'public') {
+      if (!options.viewerLocation || !options.radiusKm) {
+        return [];
+      }
+
+      const { data, error } = await supabase.rpc('fetch_public_prayer_posts_near', {
+        limit_count: 50,
+        radius_km: options.radiusKm,
+        viewer_lat: options.viewerLocation.latitude,
+        viewer_lng: options.viewerLocation.longitude,
+      });
+
+      if (error) {
+        throw error;
+      }
+
+      const rows = (data ?? []) as PrayerPostRow[];
+
+      await writeCachedPrayerRows(scope, rows, groupId);
+
+      const safetyControls = await fetchPrayerSafetyControls();
+
+      return applyPrayerVisibilityControls(rows.map(mapPrayerPostRowToCard), safetyControls);
+    }
 
     let query = supabase
       .from('prayer_posts')
@@ -98,8 +206,8 @@ export async function fetchPersistedPrayerCards(scope: PrayerVisibility): Promis
       .order('created_at', { ascending: false })
       .limit(50);
 
-    if (scope === 'public') {
-      query = query.is('group_id', null);
+    if (groupId) {
+      query = query.eq('group_id', groupId);
     }
 
     const { data, error } = await query;
@@ -110,16 +218,30 @@ export async function fetchPersistedPrayerCards(scope: PrayerVisibility): Promis
 
     const rows = (data ?? []) as PrayerPostRow[];
 
-    await writeCachedPrayerRows(scope, rows);
+    await writeCachedPrayerRows(scope, rows, groupId);
 
-    return rows.map(mapPrayerPostRowToCard);
+    const safetyControls = await fetchPrayerSafetyControls();
+    const cards = rows
+      .map(mapPrayerPostRowToCard)
+      .filter((card) => prayerCardMatchesLocation(card, scope, options));
+
+    return applyPrayerVisibilityControls(cards, safetyControls);
   } catch (error) {
-    warnCacheFallback('load prayers from Supabase', error);
-    return readCachedPrayerCards(scope);
+    warnServerFallback('load prayers from Supabase', error);
+    const cards = await readCachedPrayerCards(scope, groupId);
+    const safetyControls = await fetchPrayerSafetyControls();
+
+    return applyPrayerVisibilityControls(
+      cards.filter((card) => prayerCardMatchesLocation(card, scope, options)),
+      safetyControls,
+    );
   }
 }
 
-export async function createPersistedPrayerCard(draft: PrayerDraft): Promise<PrayerCard> {
+export async function createPersistedPrayerCard(
+  draft: PrayerDraft,
+  location?: PrayerLocation | null,
+): Promise<PrayerCard> {
   const { isSupabaseConfigured, supabase } = await getSupabaseRuntime();
 
   if (!isSupabaseConfigured || !supabase) {
@@ -127,7 +249,7 @@ export async function createPersistedPrayerCard(draft: PrayerDraft): Promise<Pra
   }
 
   const userId = await ensureSupabaseProfile();
-  const insert = buildPrayerPostInsert(draft, userId);
+  const insert = buildPrayerPostInsert(draft, userId, draft.groupId, location);
   const { data, error } = await supabase
     .from('prayer_posts')
     .insert(insert)
@@ -145,58 +267,26 @@ export async function createPersistedPrayerCard(draft: PrayerDraft): Promise<Pra
   return mapPrayerPostRowToCard(row);
 }
 
-async function ensureSupabaseProfile(): Promise<string> {
-  const { supabase } = await getSupabaseRuntime();
-
-  if (!supabase) {
-    throw new Error('Supabase is not configured.');
-  }
-
-  const sessionResult = await supabase.auth.getSession();
-  if (sessionResult.error) {
-    throw sessionResult.error;
-  }
-
-  let userId = sessionResult.data.session?.user.id ?? null;
-
-  if (!userId) {
-    const { data, error } = await supabase.auth.signInAnonymously();
-
-    if (error) {
-      throw error;
-    }
-
-    userId = data.user?.id ?? null;
-  }
-
-  if (!userId) {
-    throw new Error('Supabase did not return a user session.');
-  }
-
-  const { error: profileError } = await supabase
-    .from('profiles')
-    .upsert({ id: userId }, { onConflict: 'id' });
-
-  if (profileError) {
-    throw profileError;
-  }
-
-  return userId;
-}
-
-async function readCachedPrayerCards(scope: PrayerVisibility): Promise<PrayerCard[]> {
+async function readCachedPrayerCards(
+  scope: PrayerVisibility,
+  groupId?: string,
+): Promise<PrayerCard[]> {
   const rows = await readCachedPrayerRows();
 
   return rows
-    .filter((row) => row.visibility === scope)
+    .filter((row) => prayerRowMatchesScope(row, scope, groupId))
     .map(mapPrayerPostRowToCard);
 }
 
-async function writeCachedPrayerRows(scope: PrayerVisibility, nextRows: PrayerPostRow[]) {
+async function writeCachedPrayerRows(
+  scope: PrayerVisibility,
+  nextRows: PrayerPostRow[],
+  groupId?: string,
+) {
   const currentRows = await readCachedPrayerRows();
   const rows = [
     ...nextRows,
-    ...currentRows.filter((row) => row.visibility !== scope),
+    ...currentRows.filter((row) => !prayerRowMatchesScope(row, scope, groupId)),
   ];
 
   await saveCachedPrayerRows(rows);
@@ -230,23 +320,39 @@ async function readCachedPrayerRows(): Promise<PrayerPostRow[]> {
 
     return Array.isArray(parsed) ? (parsed as PrayerPostRow[]) : [];
   } catch (error) {
-    warnCacheFallback('read cached prayers', error);
+    warnServerFallback('read cached prayers', error);
     return [];
   }
 }
 
-async function getSupabaseRuntime() {
-  return import('../supabase');
-}
-
-async function getAsyncStorage() {
-  return (await import('@react-native-async-storage/async-storage')).default;
-}
-
-function warnCacheFallback(action: string, error: unknown) {
-  if (process.env.NODE_ENV === 'test') {
-    return;
+function prayerRowMatchesScope(
+  row: PrayerPostRow,
+  scope: PrayerVisibility,
+  groupId?: string,
+) {
+  if (row.visibility !== scope) {
+    return false;
   }
 
-  console.warn(`Could not ${action}; showing last cached server prayers instead.`, error);
+  if (scope === 'public') {
+    return !row.group_id;
+  }
+
+  return groupId ? row.group_id === groupId : true;
+}
+
+function prayerCardMatchesLocation(
+  card: PrayerCard,
+  scope: PrayerVisibility,
+  options: PrayerPostFetchOptions,
+) {
+  if (scope !== 'public' || !options.viewerLocation || !options.radiusKm) {
+    return true;
+  }
+
+  if (!card.location) {
+    return isWebRuntime;
+  }
+
+  return distanceKmBetween(options.viewerLocation, card.location) <= options.radiusKm;
 }
