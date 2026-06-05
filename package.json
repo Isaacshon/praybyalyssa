@@ -10,6 +10,9 @@
     "web": "expo start --web",
     "build:web": "expo export --platform web",
     "deploy:pages": "gh-pages --nojekyll -d dist",
+    "generate:grow-previews": "node scripts/generate-grow-preview-assets.cjs",
+    "optimize:release-assets": "node scripts/optimize-release-assets.cjs",
+    "check:android-release": "node scripts/check-android-release-readiness.cjs",
     "lint": "expo lint",
     "test": "vitest run"
   },
@@ -56,6 +59,7 @@
     "eslint": "^9.0.0",
     "eslint-config-expo": "~55.0.1",
     "gh-pages": "^6.3.0",
+    "sharp": "^0.34.5",
     "typescript": "~5.9.2",
     "vitest": "^4.1.6"
   },

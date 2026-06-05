@@ -4,5 +4,6 @@
     "source.organizeImports": "explicit",
     "source.sortMembers": "explicit"
   },
+  "emulator.emulatorPathWindows": "C:\\Users\\thswn\\AppData\\Local\\Android\\Sdk\\emulator",
   "mobile-preview.url": "http://localhost:8081/groups"
 }

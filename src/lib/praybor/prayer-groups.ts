@@ -101,6 +101,29 @@ export function buildPrayerGroupInsert({
   };
 }
 
+function getErrorMessage(error: unknown, fallbackMessage: string) {
+  if (error instanceof Error && error.message) {
+    return error.message;
+  }
+
+  if (error && typeof error === 'object') {
+    const maybeMessage = 'message' in error ? error.message : null;
+    const maybeDetails = 'details' in error ? error.details : null;
+    const maybeHint = 'hint' in error ? error.hint : null;
+
+    return [maybeMessage, maybeDetails, maybeHint]
+      .filter((value): value is string => typeof value === 'string' && value.trim().length > 0)
+      .join(' ')
+      || fallbackMessage;
+  }
+
+  return fallbackMessage;
+}
+
+function throwAppError(error: unknown, fallbackMessage: string): never {
+  throw new Error(getErrorMessage(error, fallbackMessage));
+}
+
 export function mapPrayerGroupRowToGroup(
   row: PrayerGroupRow,
   metrics: GroupMetric = {},
@@ -174,34 +197,23 @@ export async function createPersistedPrayerGroup({
     throw new Error('Supabase is not configured. Add the project URL and publishable key before creating groups.');
   }
 
-  const ownerId = await ensureSupabaseProfile();
-  const insert = buildPrayerGroupInsert({
-    ownerId,
-    name,
-    category,
-    invitationCode,
+  const { data, error } = await supabase.rpc('create_prayer_group', {
+    group_category: category,
+    group_name: name,
+    invite_code: normalizeInviteCode(invitationCode),
   });
 
-  const { data, error } = await supabase
-    .from('prayer_groups')
-    .insert(insert)
-    .select(groupSelect)
-    .single();
-
   if (error) {
-    throw error;
+    throwAppError(error, 'Unable to create this group.');
   }
 
-  const row = data as PrayerGroupRow;
+  const row = Array.isArray(data) ? data[0] : data;
 
-  await supabase
-    .from('group_memberships')
-    .upsert(
-      { group_id: row.id, user_id: ownerId, role: 'owner' },
-      { onConflict: 'group_id,user_id' },
-    );
+  if (!row) {
+    throw new Error('Unable to create this group.');
+  }
 
-  return mapPrayerGroupRowToGroup(row, { memberCount: 1, postCount: 0 });
+  return mapPrayerGroupRowToGroup(row as PrayerGroupRow, { memberCount: 1, postCount: 0 });
 }
 
 export async function joinPersistedPrayerGroup(code: string): Promise<PersistedPrayerGroup> {
@@ -218,7 +230,7 @@ export async function joinPersistedPrayerGroup(code: string): Promise<PersistedP
   });
 
   if (error) {
-    throw error;
+    throwAppError(error, 'Unable to join this group.');
   }
 
   const row = Array.isArray(data) ? data[0] : data;

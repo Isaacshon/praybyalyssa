@@ -219,6 +219,7 @@ export function UtilityIcon({
     | 'chevronDown'
     | 'arrowRight'
     | 'check'
+    | 'lock'
     | 'draw'
     | 'save'
     | 'siren';
@@ -291,6 +292,13 @@ export function UtilityIcon({
           </>
         ) : null}
         {type === 'check' ? <Path d="M12 25 L21 34 L37 14" /> : null}
+        {type === 'lock' ? (
+          <>
+            <Rect x="13" y="22" width="22" height="17" rx="4" />
+            <Path d="M18 22 V17 C18 12 21 9 24 9 C27 9 30 12 30 17 V22" />
+            <Path d="M24 29 V33" />
+          </>
+        ) : null}
         {type === 'draw' ? (
           <>
             <Path d="M13 35 L17 25 L32 10 L38 16 L23 31 Z" />

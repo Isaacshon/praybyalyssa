@@ -6,6 +6,22 @@ export const fieldImage = require('../../../assets/images/praybor/forest/forest-
 export const forestTreeLayerImage = require('../../../assets/images/praybor/forest/forest-trees.png');
 export const forestLeafLayerImage = require('../../../assets/images/praybor/forest/forest-leaves.png');
 export const nextFieldImage = require('../../../assets/images/praybor/forest/ground2.png');
+export const FOREST_FLAT_MAP_IMAGE = require('../../../assets/images/praybor/diorama/forest-flat-grid.jpg');
+export const FOREST_DIORAMA_PLATFORM_IMAGES = {
+  forest: require('../../../assets/images/praybor/diorama/forest.png'),
+  desert: require('../../../assets/images/praybor/diorama/desert.png'),
+  moon: require('../../../assets/images/praybor/diorama/moon.png'),
+} satisfies Record<string, ImageSourcePropType>;
+export const FOREST_DIORAMA_PLATFORM_PREVIEW_IMAGES = {
+  forest: require('../../../assets/images/praybor/previews/diorama/forest.webp'),
+  desert: require('../../../assets/images/praybor/previews/diorama/desert.webp'),
+  moon: require('../../../assets/images/praybor/previews/diorama/moon.webp'),
+} satisfies Record<string, ImageSourcePropType>;
+export const FOREST_DIORAMA_BACKGROUND_IMAGES = {
+  forest: require('../../../assets/images/praybor/diorama/background/forest.jpg'),
+  desert: require('../../../assets/images/praybor/diorama/background/desert.jpg'),
+  moon: require('../../../assets/images/praybor/diorama/background/moon.jpg'),
+} satisfies Record<string, ImageSourcePropType>;
 export const ANIMAL_COMPANION_IMAGE_ASSETS: Partial<Record<
   string,
   {
@@ -14,72 +30,80 @@ export const ANIMAL_COMPANION_IMAGE_ASSETS: Partial<Record<
   }
 >> = {
   baby_rabbit: {
-    walkingImage: require('../../../Logo/forest asset/동물/아기토끼/사이드뷰.gif'),
-    idleImage: require('../../../Logo/forest asset/동물/아기토끼/정면.gif'),
+    walkingImage: require('../../../assets/images/praybor/animals/baby-rabbit-side.gif'),
+    idleImage: require('../../../assets/images/praybor/animals/baby-rabbit-front.gif'),
   },
   dog: {
-    walkingImage: require('../../../Logo/forest asset/동물/강아지/사이드뷰.gif'),
-    idleImage: require('../../../Logo/forest asset/동물/강아지/정면.gif'),
+    walkingImage: require('../../../assets/images/praybor/animals/dog-side.gif'),
+    idleImage: require('../../../assets/images/praybor/animals/dog-front.gif'),
   },
   desert_fox: {
-    walkingImage: require('../../../assets/images/praybor/animals/desert-fox-side-stable.gif'),
-    idleImage: require('../../../Logo/forest asset/동물/사막여우/정면.gif'),
+    walkingImage: require('../../../assets/images/praybor/animals/desert-fox-side.gif'),
+    idleImage: require('../../../assets/images/praybor/animals/desert-fox-front.gif'),
   },
   rock_hyrax: {
-    walkingImage: require('../../../Logo/forest asset/동물/바위너구리/사이드뷰.gif'),
-    idleImage: require('../../../Logo/forest asset/동물/바위너구리/정면.gif'),
+    walkingImage: require('../../../assets/images/praybor/animals/rock-hyrax-side.gif'),
+    idleImage: require('../../../assets/images/praybor/animals/rock-hyrax-front.gif'),
   },
   lion: {
-    walkingImage: require('../../../Logo/forest asset/동물/사자/사이드뷰.gif'),
-    idleImage: require('../../../Logo/forest asset/동물/사자/정면.gif'),
+    walkingImage: require('../../../assets/images/praybor/animals/lion-side.gif'),
+    idleImage: require('../../../assets/images/praybor/animals/lion-front.gif'),
   },
   sheep: {
-    walkingImage: require('../../../Logo/forest asset/동물/양/사이드뷰.gif'),
-    idleImage: require('../../../Logo/forest asset/동물/양/정면.gif'),
+    walkingImage: require('../../../assets/images/praybor/animals/sheep-side.gif'),
+    idleImage: require('../../../assets/images/praybor/animals/sheep-front.gif'),
   },
+};
+export const ANIMAL_COMPANION_PREVIEW_IMAGES: Record<string, ImageSourcePropType> = {
+  baby_rabbit: require('../../../assets/images/praybor/previews/animals/baby_rabbit.webp'),
+  dog: require('../../../assets/images/praybor/previews/animals/dog.webp'),
+  desert_fox: require('../../../assets/images/praybor/previews/animals/desert_fox.webp'),
+  rock_hyrax: require('../../../assets/images/praybor/previews/animals/rock_hyrax.webp'),
+  lion: require('../../../assets/images/praybor/previews/animals/lion.webp'),
+  sheep: require('../../../assets/images/praybor/previews/animals/sheep.webp'),
 };
 export const GROW_MAP_SCENE_ASSETS = {
   forest: {
     id: 'forest',
-    guideImage: require('../../../Logo/forest asset/배경/숲/도감.png'),
-    backgroundImage: require('../../../Logo/forest asset/배경/숲/숲.png'),
-    stillLayerImage: require('../../../Logo/forest asset/배경/숲/나무.png'),
-    breezeLayerImage: require('../../../Logo/forest asset/배경/숲/풀.png'),
+    guideImage: require('../../../assets/images/praybor/maps/forest/guide.png'),
+    backgroundImage: require('../../../assets/images/praybor/maps/forest/background.png'),
+    stillLayerImage: require('../../../assets/images/praybor/maps/forest/still.png'),
+    breezeLayerImage: require('../../../assets/images/praybor/maps/forest/breeze.png'),
   },
   wilderness: {
     id: 'wilderness',
-    guideImage: require('../../../Logo/forest asset/배경/광야/도감.png'),
-    backgroundImage: require('../../../Logo/forest asset/배경/광야/땅.png'),
-    stillLayerImage: require('../../../Logo/forest asset/배경/광야/돌.png'),
-    breezeLayerImage: require('../../../Logo/forest asset/배경/광야/풀.png'),
+    guideImage: require('../../../assets/images/praybor/maps/wilderness/guide.png'),
+    backgroundImage: require('../../../assets/images/praybor/maps/wilderness/background.png'),
+    stillLayerImage: require('../../../assets/images/praybor/maps/wilderness/still.png'),
+    breezeLayerImage: require('../../../assets/images/praybor/maps/wilderness/breeze.png'),
   },
   highland: {
     id: 'highland',
-    guideImage: require('../../../Logo/forest asset/배경/고원/preview_combined.png'),
-    backgroundImage: require('../../../Logo/forest asset/배경/고원/01_base_highland_ground_path.png'),
-    stillLayerImage: require('../../../Logo/forest asset/배경/고원/02_terrain_mountains_stream_rocks.png'),
-    breezeLayerImage: require('../../../Logo/forest asset/배경/고원/03_vegetation_olive_carmel_details.png'),
+    guideImage: require('../../../assets/images/praybor/maps/highland/guide.png'),
+    backgroundImage: require('../../../assets/images/praybor/maps/highland/background.png'),
+    stillLayerImage: require('../../../assets/images/praybor/maps/highland/still.png'),
+    breezeLayerImage: require('../../../assets/images/praybor/maps/highland/breeze.png'),
   },
   garden: {
     id: 'garden',
-    guideImage: require('../../../Logo/forest asset/배경/동산/프리뷰.png'),
-    backgroundImage: require('../../../Logo/forest asset/배경/동산/배경 1.png'),
-    stillLayerImage: require('../../../Logo/forest asset/배경/동산/배경 2.png'),
-    breezeLayerImage: require('../../../Logo/forest asset/배경/동산/배경 3.png'),
+    guideImage: require('../../../assets/images/praybor/maps/garden/guide.png'),
+    backgroundImage: require('../../../assets/images/praybor/maps/garden/background.png'),
+    stillLayerImage: require('../../../assets/images/praybor/maps/garden/still.png'),
+    breezeLayerImage: require('../../../assets/images/praybor/maps/garden/breeze.png'),
   },
   flowerGarden: {
     id: 'flowerGarden',
-    guideImage: require('../../../Logo/forest asset/배경/꽃밭/프리뷰.png'),
-    backgroundImage: require('../../../Logo/forest asset/배경/꽃밭/배경1.png'),
-    stillLayerImage: require('../../../Logo/forest asset/배경/꽃밭/배경2.png'),
-    breezeLayerImage: require('../../../Logo/forest asset/배경/꽃밭/배경3.png'),
+    guideImage: require('../../../assets/images/praybor/maps/flower-garden/guide.png'),
+    backgroundImage: require('../../../assets/images/praybor/maps/flower-garden/background.png'),
+    stillLayerImage: require('../../../assets/images/praybor/maps/flower-garden/still.png'),
+    breezeLayerImage: require('../../../assets/images/praybor/maps/flower-garden/breeze.png'),
   },
   nightSky: {
     id: 'nightSky',
-    guideImage: require('../../../Logo/forest asset/배경/밤하늘/프리뷰.png'),
-    backgroundImage: require('../../../Logo/forest asset/배경/밤하늘/1.png'),
-    stillLayerImage: require('../../../Logo/forest asset/배경/밤하늘/2.png'),
-    breezeLayerImage: require('../../../Logo/forest asset/배경/밤하늘/3.png'),
+    guideImage: require('../../../assets/images/praybor/maps/night-sky/guide.png'),
+    backgroundImage: require('../../../assets/images/praybor/maps/night-sky/background.png'),
+    stillLayerImage: require('../../../assets/images/praybor/maps/night-sky/still.png'),
+    breezeLayerImage: require('../../../assets/images/praybor/maps/night-sky/breeze.png'),
   },
 } satisfies Record<
   string,
@@ -98,6 +122,14 @@ export const GROW_MAP_GUIDE_IMAGES: Record<string, ImageSourcePropType> = {
   garden: GROW_MAP_SCENE_ASSETS.garden.guideImage,
   flowerGarden: GROW_MAP_SCENE_ASSETS.flowerGarden.guideImage,
   nightSky: GROW_MAP_SCENE_ASSETS.nightSky.guideImage,
+};
+export const GROW_MAP_PREVIEW_IMAGES: Record<string, ImageSourcePropType> = {
+  forest: require('../../../assets/images/praybor/previews/maps/forest.webp'),
+  wilderness: require('../../../assets/images/praybor/previews/maps/wilderness.webp'),
+  highland: require('../../../assets/images/praybor/previews/maps/highland.webp'),
+  garden: require('../../../assets/images/praybor/previews/maps/garden.webp'),
+  flowerGarden: require('../../../assets/images/praybor/previews/maps/flowerGarden.webp'),
+  nightSky: require('../../../assets/images/praybor/previews/maps/nightSky.webp'),
 };
 
 export const TREE_STAGE_IMAGES_BY_SPECIES: Record<string, ImageSourcePropType[]> = {
@@ -263,19 +295,207 @@ export const TREE_STAGE_IMAGES_BY_SPECIES: Record<string, ImageSourcePropType[]>
     require('../../../assets/images/praybor/trees/tree-09-stage-05.png'),
   ],
 };
+export const TREE_STAGE_PREVIEW_IMAGES_BY_SPECIES: Record<string, ImageSourcePropType[]> = {
+  plum: [
+    require('../../../assets/images/praybor/previews/trees/plum-stage-01.webp'),
+    require('../../../assets/images/praybor/previews/trees/plum-stage-02.webp'),
+    require('../../../assets/images/praybor/previews/trees/plum-stage-03.webp'),
+    require('../../../assets/images/praybor/previews/trees/plum-stage-04.webp'),
+    require('../../../assets/images/praybor/previews/trees/plum-stage-05.webp'),
+  ],
+  cherry: [
+    require('../../../assets/images/praybor/previews/trees/cherry-stage-01.webp'),
+    require('../../../assets/images/praybor/previews/trees/cherry-stage-02.webp'),
+    require('../../../assets/images/praybor/previews/trees/cherry-stage-03.webp'),
+    require('../../../assets/images/praybor/previews/trees/cherry-stage-04.webp'),
+    require('../../../assets/images/praybor/previews/trees/cherry-stage-05.webp'),
+  ],
+  olive: [
+    require('../../../assets/images/praybor/previews/trees/olive-stage-01.webp'),
+    require('../../../assets/images/praybor/previews/trees/olive-stage-02.webp'),
+    require('../../../assets/images/praybor/previews/trees/olive-stage-03.webp'),
+    require('../../../assets/images/praybor/previews/trees/olive-stage-04.webp'),
+    require('../../../assets/images/praybor/previews/trees/olive-stage-05.webp'),
+  ],
+  orange: [
+    require('../../../assets/images/praybor/previews/trees/orange-stage-01.webp'),
+    require('../../../assets/images/praybor/previews/trees/orange-stage-02.webp'),
+    require('../../../assets/images/praybor/previews/trees/orange-stage-03.webp'),
+    require('../../../assets/images/praybor/previews/trees/orange-stage-04.webp'),
+    require('../../../assets/images/praybor/previews/trees/orange-stage-05.webp'),
+  ],
+  palm: [
+    require('../../../assets/images/praybor/previews/trees/palm-stage-01.webp'),
+    require('../../../assets/images/praybor/previews/trees/palm-stage-02.webp'),
+    require('../../../assets/images/praybor/previews/trees/palm-stage-03.webp'),
+    require('../../../assets/images/praybor/previews/trees/palm-stage-04.webp'),
+    require('../../../assets/images/praybor/previews/trees/palm-stage-05.webp'),
+  ],
+  avocado: [
+    require('../../../assets/images/praybor/previews/trees/avocado-stage-01.webp'),
+    require('../../../assets/images/praybor/previews/trees/avocado-stage-02.webp'),
+    require('../../../assets/images/praybor/previews/trees/avocado-stage-03.webp'),
+    require('../../../assets/images/praybor/previews/trees/avocado-stage-04.webp'),
+    require('../../../assets/images/praybor/previews/trees/avocado-stage-05.webp'),
+  ],
+  almond: [
+    require('../../../assets/images/praybor/previews/trees/almond-stage-01.webp'),
+    require('../../../assets/images/praybor/previews/trees/almond-stage-02.webp'),
+    require('../../../assets/images/praybor/previews/trees/almond-stage-03.webp'),
+    require('../../../assets/images/praybor/previews/trees/almond-stage-04.webp'),
+    require('../../../assets/images/praybor/previews/trees/almond-stage-05.webp'),
+  ],
+  pomegranate: [
+    require('../../../assets/images/praybor/previews/trees/pomegranate-stage-01.webp'),
+    require('../../../assets/images/praybor/previews/trees/pomegranate-stage-02.webp'),
+    require('../../../assets/images/praybor/previews/trees/pomegranate-stage-03.webp'),
+    require('../../../assets/images/praybor/previews/trees/pomegranate-stage-04.webp'),
+    require('../../../assets/images/praybor/previews/trees/pomegranate-stage-05.webp'),
+  ],
+  apricot: [
+    require('../../../assets/images/praybor/previews/trees/apricot-stage-01.webp'),
+    require('../../../assets/images/praybor/previews/trees/apricot-stage-02.webp'),
+    require('../../../assets/images/praybor/previews/trees/apricot-stage-03.webp'),
+    require('../../../assets/images/praybor/previews/trees/apricot-stage-04.webp'),
+    require('../../../assets/images/praybor/previews/trees/apricot-stage-05.webp'),
+  ],
+  apple: [
+    require('../../../assets/images/praybor/previews/trees/apple-stage-01.webp'),
+    require('../../../assets/images/praybor/previews/trees/apple-stage-02.webp'),
+    require('../../../assets/images/praybor/previews/trees/apple-stage-03.webp'),
+    require('../../../assets/images/praybor/previews/trees/apple-stage-04.webp'),
+    require('../../../assets/images/praybor/previews/trees/apple-stage-05.webp'),
+  ],
+  loquat: [
+    require('../../../assets/images/praybor/previews/trees/loquat-stage-01.webp'),
+    require('../../../assets/images/praybor/previews/trees/loquat-stage-02.webp'),
+    require('../../../assets/images/praybor/previews/trees/loquat-stage-03.webp'),
+    require('../../../assets/images/praybor/previews/trees/loquat-stage-04.webp'),
+    require('../../../assets/images/praybor/previews/trees/loquat-stage-05.webp'),
+  ],
+  peach: [
+    require('../../../assets/images/praybor/previews/trees/peach-stage-01.webp'),
+    require('../../../assets/images/praybor/previews/trees/peach-stage-02.webp'),
+    require('../../../assets/images/praybor/previews/trees/peach-stage-03.webp'),
+    require('../../../assets/images/praybor/previews/trees/peach-stage-04.webp'),
+    require('../../../assets/images/praybor/previews/trees/peach-stage-05.webp'),
+  ],
+  pear: [
+    require('../../../assets/images/praybor/previews/trees/pear-stage-01.webp'),
+    require('../../../assets/images/praybor/previews/trees/pear-stage-02.webp'),
+    require('../../../assets/images/praybor/previews/trees/pear-stage-03.webp'),
+    require('../../../assets/images/praybor/previews/trees/pear-stage-04.webp'),
+    require('../../../assets/images/praybor/previews/trees/pear-stage-05.webp'),
+  ],
+  chestnut: [
+    require('../../../assets/images/praybor/previews/trees/chestnut-stage-01.webp'),
+    require('../../../assets/images/praybor/previews/trees/chestnut-stage-02.webp'),
+    require('../../../assets/images/praybor/previews/trees/chestnut-stage-03.webp'),
+    require('../../../assets/images/praybor/previews/trees/chestnut-stage-04.webp'),
+    require('../../../assets/images/praybor/previews/trees/chestnut-stage-05.webp'),
+  ],
+  mango: [
+    require('../../../assets/images/praybor/previews/trees/mango-stage-01.webp'),
+    require('../../../assets/images/praybor/previews/trees/mango-stage-02.webp'),
+    require('../../../assets/images/praybor/previews/trees/mango-stage-03.webp'),
+    require('../../../assets/images/praybor/previews/trees/mango-stage-04.webp'),
+    require('../../../assets/images/praybor/previews/trees/mango-stage-05.webp'),
+  ],
+  guava: [
+    require('../../../assets/images/praybor/previews/trees/guava-stage-01.webp'),
+    require('../../../assets/images/praybor/previews/trees/guava-stage-02.webp'),
+    require('../../../assets/images/praybor/previews/trees/guava-stage-03.webp'),
+    require('../../../assets/images/praybor/previews/trees/guava-stage-04.webp'),
+    require('../../../assets/images/praybor/previews/trees/guava-stage-05.webp'),
+  ],
+  persimmon: [
+    require('../../../assets/images/praybor/previews/trees/persimmon-stage-01.webp'),
+    require('../../../assets/images/praybor/previews/trees/persimmon-stage-02.webp'),
+    require('../../../assets/images/praybor/previews/trees/persimmon-stage-03.webp'),
+    require('../../../assets/images/praybor/previews/trees/persimmon-stage-04.webp'),
+    require('../../../assets/images/praybor/previews/trees/persimmon-stage-05.webp'),
+  ],
+  grape_vine: [
+    require('../../../assets/images/praybor/previews/trees/grape_vine-stage-01.webp'),
+    require('../../../assets/images/praybor/previews/trees/grape_vine-stage-02.webp'),
+    require('../../../assets/images/praybor/previews/trees/grape_vine-stage-03.webp'),
+    require('../../../assets/images/praybor/previews/trees/grape_vine-stage-04.webp'),
+    require('../../../assets/images/praybor/previews/trees/grape_vine-stage-05.webp'),
+  ],
+  cedar: [
+    require('../../../assets/images/praybor/previews/trees/cedar-stage-01.webp'),
+    require('../../../assets/images/praybor/previews/trees/cedar-stage-02.webp'),
+    require('../../../assets/images/praybor/previews/trees/cedar-stage-03.webp'),
+    require('../../../assets/images/praybor/previews/trees/cedar-stage-04.webp'),
+    require('../../../assets/images/praybor/previews/trees/cedar-stage-05.webp'),
+  ],
+  baobab: [
+    require('../../../assets/images/praybor/previews/trees/baobab-stage-01.webp'),
+    require('../../../assets/images/praybor/previews/trees/baobab-stage-02.webp'),
+    require('../../../assets/images/praybor/previews/trees/baobab-stage-03.webp'),
+    require('../../../assets/images/praybor/previews/trees/baobab-stage-04.webp'),
+    require('../../../assets/images/praybor/previews/trees/baobab-stage-05.webp'),
+  ],
+  walnut: [
+    require('../../../assets/images/praybor/previews/trees/walnut-stage-01.webp'),
+    require('../../../assets/images/praybor/previews/trees/walnut-stage-02.webp'),
+    require('../../../assets/images/praybor/previews/trees/walnut-stage-03.webp'),
+    require('../../../assets/images/praybor/previews/trees/walnut-stage-04.webp'),
+    require('../../../assets/images/praybor/previews/trees/walnut-stage-05.webp'),
+  ],
+  cherry_blossom: [
+    require('../../../assets/images/praybor/previews/trees/cherry_blossom-stage-01.webp'),
+    require('../../../assets/images/praybor/previews/trees/cherry_blossom-stage-02.webp'),
+    require('../../../assets/images/praybor/previews/trees/cherry_blossom-stage-03.webp'),
+    require('../../../assets/images/praybor/previews/trees/cherry_blossom-stage-04.webp'),
+    require('../../../assets/images/praybor/previews/trees/cherry_blossom-stage-05.webp'),
+  ],
+  ginkgo: [
+    require('../../../assets/images/praybor/previews/trees/ginkgo-stage-01.webp'),
+    require('../../../assets/images/praybor/previews/trees/ginkgo-stage-02.webp'),
+    require('../../../assets/images/praybor/previews/trees/ginkgo-stage-03.webp'),
+    require('../../../assets/images/praybor/previews/trees/ginkgo-stage-04.webp'),
+    require('../../../assets/images/praybor/previews/trees/ginkgo-stage-05.webp'),
+  ],
+};
 let growAssetsPreloadPromise: Promise<void> | null = null;
 let growAssetsReady = false;
+const growPreloadedImageSourceKeys = new Set<string>();
+const growPreloadingImageSourcePromises = new Map<string, Promise<void>>();
+
+type GrowImagePreloadOptions = {
+  cachePolicy?: 'disk' | 'memory' | 'memory-disk';
+  chunkSize?: number;
+};
 
 export function areGrowScreenAssetsReady() {
   return growAssetsReady;
 }
 
-export function getGrowScreenImageAssets() {
-  const assets = [
+function getUniqueAssetModules(sources: readonly ImageSourcePropType[]) {
+  return Array.from(new Set(sources.filter((asset): asset is number => typeof asset === 'number')));
+}
+
+function getGrowImageSourceKey(source: ImageSourcePropType) {
+  if (typeof source === 'number') {
+    return `module:${source}`;
+  }
+
+  const uri = getGrowImageUri(source);
+
+  return uri ? `uri:${uri}` : null;
+}
+
+function getGrowScreenDeferredImageSources() {
+  return [
     fieldImage,
     forestTreeLayerImage,
     forestLeafLayerImage,
     nextFieldImage,
+    FOREST_FLAT_MAP_IMAGE,
+    ...Object.values(GROW_MAP_PREVIEW_IMAGES),
+    ...Object.values(FOREST_DIORAMA_PLATFORM_PREVIEW_IMAGES),
+    ...Object.values(ANIMAL_COMPANION_PREVIEW_IMAGES),
     ...Object.values(GROW_MAP_SCENE_ASSETS).flatMap((area) =>
       [
         area.guideImage,
@@ -284,10 +504,111 @@ export function getGrowScreenImageAssets() {
         area.breezeLayerImage,
       ].filter((source): source is ImageSourcePropType => Boolean(source)),
     ),
+    ...Object.values(ANIMAL_COMPANION_IMAGE_ASSETS)
+      .filter(
+        (animalAssets): animalAssets is {
+          walkingImage: ImageSourcePropType;
+          idleImage: ImageSourcePropType;
+        } => Boolean(animalAssets),
+      )
+      .flatMap((animalAssets) => [
+        animalAssets.walkingImage,
+        animalAssets.idleImage,
+      ]),
+    ...Object.values(TREE_STAGE_PREVIEW_IMAGES_BY_SPECIES).flat(),
     ...Object.values(TREE_STAGE_IMAGES_BY_SPECIES).flat(),
   ];
+}
 
-  return Array.from(new Set(assets.filter((asset): asset is number => typeof asset === 'number')));
+export function getGrowScreenCriticalImageAssets() {
+  const appleStagePreviewImages = TREE_STAGE_PREVIEW_IMAGES_BY_SPECIES.apple ?? [];
+
+  return getUniqueAssetModules([
+    GROW_MAP_PREVIEW_IMAGES.forest,
+    appleStagePreviewImages[0],
+    appleStagePreviewImages[4],
+  ].filter((asset): asset is ImageSourcePropType => Boolean(asset)));
+}
+
+export function getGrowScreenImageAssets() {
+  return getUniqueAssetModules(getGrowScreenDeferredImageSources());
+}
+
+export async function preloadGrowImageSources(
+  sources: readonly ImageSourcePropType[],
+  options: GrowImagePreloadOptions = {},
+) {
+  const cachePolicy = options.cachePolicy ?? 'memory-disk';
+  const chunkSize = Math.max(1, options.chunkSize ?? 6);
+  const preloadJobStarters: (() => Promise<void>)[] = [];
+  const queuedSourceKeys = new Set<string>();
+
+  for (const source of sources) {
+    const key = getGrowImageSourceKey(source);
+
+    if (!key || growPreloadedImageSourceKeys.has(key) || queuedSourceKeys.has(key)) {
+      continue;
+    }
+
+    queuedSourceKeys.add(key);
+    const existingPreloadJob = growPreloadingImageSourcePromises.get(key);
+
+    if (existingPreloadJob) {
+      preloadJobStarters.push(() => existingPreloadJob);
+      continue;
+    }
+
+    preloadJobStarters.push(() => {
+      const preloadJob = preloadSingleGrowImageSource(source, cachePolicy)
+        .then(() => {
+          growPreloadedImageSourceKeys.add(key);
+        })
+        .finally(() => {
+          if (growPreloadingImageSourcePromises.get(key) === preloadJob) {
+            growPreloadingImageSourcePromises.delete(key);
+          }
+        });
+
+      growPreloadingImageSourcePromises.set(key, preloadJob);
+
+      return preloadJob;
+    });
+  }
+
+  if (preloadJobStarters.length === 0) {
+    return;
+  }
+
+  for (let index = 0; index < preloadJobStarters.length; index += chunkSize) {
+    await Promise.all(
+      preloadJobStarters.slice(index, index + chunkSize).map((startPreloadJob) => startPreloadJob()),
+    );
+  }
+}
+
+async function preloadSingleGrowImageSource(
+  source: ImageSourcePropType,
+  cachePolicy: NonNullable<GrowImagePreloadOptions['cachePolicy']>,
+) {
+  const moduleAssets = getUniqueAssetModules([source]);
+  const loadedAssets = moduleAssets.length > 0 ? await Asset.loadAsync(moduleAssets) : [];
+  const loadedUris = loadedAssets
+    .map((asset) => asset.localUri ?? asset.uri)
+    .filter((uri): uri is string => typeof uri === 'string' && uri.length > 0);
+  const directUri = moduleAssets.length === 0 ? getGrowImageUri(source) : null;
+  const directUris =
+    typeof directUri === 'string' && directUri.length > 0 ? [directUri] : [];
+  const uris = Array.from(new Set([...loadedUris, ...directUris]));
+
+  if (uris.length === 0) {
+    return;
+  }
+
+  const prefetched = await ExpoImage.prefetch(uris, { cachePolicy });
+
+  if (!prefetched) {
+    throw new Error('Grow image prefetch failed.');
+  }
 }
 
 export function getGrowImageUri(source: ImageSourcePropType) {
@@ -322,16 +643,11 @@ export function preloadGrowScreenAssets() {
   }
 
   if (!growAssetsPreloadPromise) {
-    growAssetsPreloadPromise = Asset.loadAsync(getGrowScreenImageAssets())
-      .then(async (assets) => {
-        const uris = assets
-          .map((asset) => asset.localUri ?? asset.uri)
-          .filter((uri): uri is string => typeof uri === 'string' && uri.length > 0);
-
-        if (uris.length > 0) {
-          await ExpoImage.prefetch(uris, { cachePolicy: 'memory-disk' }).catch(() => false);
-        }
-
+    growAssetsPreloadPromise = preloadGrowImageSources(
+      getGrowScreenCriticalImageAssets(),
+      { chunkSize: 3 },
+    )
+      .then(() => {
         growAssetsReady = true;
       })
       .catch((error) => {

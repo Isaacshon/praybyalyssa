@@ -8,6 +8,7 @@ import {
   PanResponder,
   Platform,
   Pressable,
+  type GestureResponderEvent,
   type NativeScrollEvent,
   type NativeSyntheticEvent,
   ScrollView,
@@ -26,6 +27,7 @@ import {
   countFruitBearingTrees,
   getNextSelectedAnimalCompanionIds,
   getUnlockedAnimalCompanions,
+  normalizeSelectedAnimalCompanionIds,
   selectRoamingAnimalCompanions,
   toggleSelectedAnimalCompanionId,
   type AnimalCompanion,
@@ -35,21 +37,45 @@ import {
   getGrowMapAreaSelectionStatus,
   isGrowMapAreaUnlocked,
 } from '@/lib/praybor/grow-map-areas';
+import { loadGrowPreferences, persistGrowPreferences } from '@/lib/praybor/grow-preferences';
+import {
+  shouldKeepOpenedOverlayMounted,
+  shouldWarmGrowOverlayAssets,
+  shouldTreatSceneAssetsAsReady,
+  shouldRenderGrowSceneContent,
+  shouldRenderForestRoamingAnimals,
+  shouldRenderRoamingAnimals,
+} from '@/lib/praybor/grow-render-state';
 import { isTreeSpeciesUnlocked } from '@/lib/praybor/grow-collection-unlocks';
 import {
   ROAMING_ANIMAL_FACING_FRAME,
   getRoamingAnimalInitialDelayMs,
   getRoamingAnimalInitialStep,
   getRoamingAnimalIdleDelayMs,
+  getRoamingAnimalLayerOffsetY,
   getRoamingAnimalMove,
+  getRoamingAnimalMotionChunkDurationMs,
+  getRoamingAnimalMovementProgress,
   getRoamingAnimalMotionState,
   getRoamingAnimalNextRestWalkCount,
   getRoamingAnimalPoint,
   getRoamingAnimalPose,
   getRoamingAnimalTurnDelayMs,
+  type RoamingAnimalArea,
   type RoamingAnimalDirectionScaleX,
   type RoamingAnimalPose,
 } from '@/lib/praybor/animal-roaming';
+import {
+  FOREST_DIORAMA_BOARD_HEIGHT,
+  FOREST_DIORAMA_BOARD_WIDTH,
+  FOREST_DIORAMA_SLOTS,
+  getForestDioramaAnimalLayerZIndex,
+  getForestDioramaScaledSlotMetrics,
+} from '@/lib/praybor/diorama-layout';
+import {
+  getForestDioramaThemeTreeWindow,
+  getForestDioramaTreeMotion,
+} from '@/lib/praybor/diorama-motion';
 import {
   getAnimalCompanionImageFrameScaleX,
   getAnimalCompanionImageScale,
@@ -68,12 +94,19 @@ import {
 } from '@/lib/praybor/dev-preview';
 import {
   ANIMAL_COMPANION_IMAGE_ASSETS,
+  ANIMAL_COMPANION_PREVIEW_IMAGES,
+  FOREST_FLAT_MAP_IMAGE,
   GROW_MAP_GUIDE_IMAGES,
+  GROW_MAP_PREVIEW_IMAGES,
   GROW_MAP_SCENE_ASSETS,
   TREE_STAGE_IMAGES_BY_SPECIES,
+  TREE_STAGE_PREVIEW_IMAGES_BY_SPECIES,
   fieldImage,
   forestLeafLayerImage,
   forestTreeLayerImage,
+  getGrowImageUri,
+  preloadGrowImageSources,
+  preloadGrowScreenAssets,
 } from '@/lib/praybor/grow-assets';
 import { getActiveTreeSnapshot, subscribeToActiveTree, updateTreeGrowthAsAdmin } from '@/lib/praybor/growth-state';
 import {
@@ -159,7 +192,7 @@ function getGrowMapSceneAsset(sceneId: string) {
 
 const GROW_MAP_AREAS = GROW_MAP_AREA_DEFINITIONS.map((area) => ({
   ...area,
-  image: GROW_MAP_GUIDE_IMAGES[area.guideImageId],
+  image: GROW_MAP_PREVIEW_IMAGES[area.guideImageId] ?? GROW_MAP_GUIDE_IMAGES[area.guideImageId],
   scene: getGrowMapSceneAsset(area.sceneId),
 }));
 const TREE_LEAF_LAYER_RATIOS: Record<TreeGrowthStage, number> = {
@@ -178,23 +211,17 @@ const TREE_STAGE_SIZE_FACTORS: Record<TreeGrowthStage, number> = {
   fruiting_tree: 1,
   completed: 1,
 };
-const FOREST_DIORAMA_SLOTS = [
-  { left: '42%', top: '8%', scale: 0.74 },
-  { left: '27%', top: '16%', scale: 0.69 },
-  { left: '57%', top: '17%', scale: 0.72 },
-  { left: '12%', top: '29%', scale: 0.64 },
-  { left: '41%', top: '29%', scale: 0.82 },
-  { left: '70%', top: '31%', scale: 0.68 },
-  { left: '23%', top: '43%', scale: 0.78 },
-  { left: '55%', top: '45%', scale: 0.86 },
-  { left: '78%', top: '47%', scale: 0.7 },
-  { left: '9%', top: '58%', scale: 0.72 },
-  { left: '36%', top: '61%', scale: 0.9 },
-  { left: '65%', top: '63%', scale: 0.82 },
-  { left: '20%', top: '75%', scale: 0.78 },
-  { left: '49%', top: '77%', scale: 0.88 },
-  { left: '76%', top: '78%', scale: 0.74 },
-] as const;
+const FOREST_FLAT_MAP = {
+  id: 'forest-flat-grid',
+  backgroundColor: '#111722',
+  image: FOREST_FLAT_MAP_IMAGE,
+} as const;
+const FOREST_DIORAMA_PAN_LIMIT_X = 32;
+const FOREST_DIORAMA_PAN_LIMIT_Y = 68;
+const FOREST_DIORAMA_MIN_ZOOM = 1;
+const FOREST_DIORAMA_MAX_ZOOM = 1.65;
+const FOREST_DIORAMA_ZOOM_EXTRA_PAN_X = 116;
+const FOREST_DIORAMA_ZOOM_EXTRA_PAN_Y = 174;
 const STAGE_PROGRESS_RANGES: Record<TreeGrowthStage, { start: number; end: number }> = {
   seed: { start: 0, end: 1 },
   sprout: { start: 1, end: 3 },
@@ -282,6 +309,32 @@ function getBundledGrowImageSource(source: ImageSourcePropType): ImageSourceProp
   return source;
 }
 
+function isGrowImageSource(source: ImageSourcePropType | null | undefined): source is ImageSourcePropType {
+  return Boolean(source);
+}
+
+function getGrowImageSourceSignature(source: ImageSourcePropType) {
+  return getGrowImageUri(source) ?? `source:${String(source)}`;
+}
+
+function getUniqueGrowImageSources(sources: readonly ImageSourcePropType[]) {
+  const seen = new Set<string>();
+  const uniqueSources: ImageSourcePropType[] = [];
+
+  for (const source of sources) {
+    const signature = getGrowImageSourceSignature(source);
+
+    if (seen.has(signature)) {
+      continue;
+    }
+
+    seen.add(signature);
+    uniqueSources.push(source);
+  }
+
+  return uniqueSources;
+}
+
 function treeStageIndex(stage: TreeGrowthStage) {
   switch (stage) {
     case 'seed':
@@ -298,20 +351,19 @@ function treeStageIndex(stage: TreeGrowthStage) {
   }
 }
 
-function getStageLabel(stage: TreeGrowthStage) {
+function getStageLabel(stage: TreeGrowthStage, treeSpeciesLabel: string) {
   switch (stage) {
     case 'seed':
       return 'Seed';
     case 'sprout':
       return 'Sprout';
     case 'small_plant':
-      return 'Growing';
     case 'young_tree':
       return 'Young tree';
     case 'fruiting_tree':
-      return 'Bearing fruit';
+      return 'Blooming tree';
     case 'completed':
-      return 'Ready';
+      return treeSpeciesLabel;
   }
 }
 
@@ -352,6 +404,277 @@ function countGrowthEvents(tree: ActiveTree | null, type: 'prayer_posted' | 'rea
   return (tree?.growthEvents ?? []).filter((event) => event.type === type).length;
 }
 
+function clampForestDioramaZoom(value: number) {
+  return clamp(value, FOREST_DIORAMA_MIN_ZOOM, FOREST_DIORAMA_MAX_ZOOM);
+}
+
+function getForestDioramaPanLimits(zoom: number) {
+  const zoomProgress =
+    (clampForestDioramaZoom(zoom) - FOREST_DIORAMA_MIN_ZOOM) /
+    (FOREST_DIORAMA_MAX_ZOOM - FOREST_DIORAMA_MIN_ZOOM);
+
+  return {
+    x: FOREST_DIORAMA_PAN_LIMIT_X + FOREST_DIORAMA_ZOOM_EXTRA_PAN_X * zoomProgress,
+    y: FOREST_DIORAMA_PAN_LIMIT_Y + FOREST_DIORAMA_ZOOM_EXTRA_PAN_Y * zoomProgress,
+  };
+}
+
+function clampForestDioramaPanOffset({
+  offset,
+  zoom,
+}: {
+  offset: { x: number; y: number };
+  zoom: number;
+}) {
+  const limits = getForestDioramaPanLimits(zoom);
+
+  return {
+    x: clamp(offset.x, -limits.x, limits.x),
+    y: clamp(offset.y, -limits.y, limits.y),
+  };
+}
+
+function getForestDioramaTouches(event: GestureResponderEvent) {
+  return event.nativeEvent.touches ?? [];
+}
+
+function getForestDioramaPinchDistance(event: GestureResponderEvent) {
+  const touches = getForestDioramaTouches(event);
+
+  if (touches.length < 2) {
+    return null;
+  }
+
+  const [firstTouch, secondTouch] = touches;
+
+  return Math.hypot(
+    firstTouch.pageX - secondTouch.pageX,
+    firstTouch.pageY - secondTouch.pageY,
+  );
+}
+
+function getForestDioramaPinchCenter(event: GestureResponderEvent) {
+  const touches = getForestDioramaTouches(event);
+
+  if (touches.length < 2) {
+    return null;
+  }
+
+  const [firstTouch, secondTouch] = touches;
+
+  return {
+    x: (firstTouch.pageX + secondTouch.pageX) / 2,
+    y: (firstTouch.pageY + secondTouch.pageY) / 2,
+  };
+}
+
+function ForestDioramaBoard({
+  source,
+}: {
+  source: ImageSourcePropType;
+}) {
+  return (
+    <ExpoImage
+      accessibilityIgnoresInvertColors
+      accessible={false}
+      pointerEvents="none"
+      source={source}
+      contentFit="cover"
+      cachePolicy="memory-disk"
+      priority="high"
+      recyclingKey={`forest-diorama-board-${String(source)}`}
+      style={styles.forestDioramaBoardImage}
+    />
+  );
+}
+
+type ForestDioramaTreeEntry = {
+  id: string;
+  image: ImageSourcePropType;
+  title: string;
+};
+
+function ForestDioramaTreeSlot({
+  breeze,
+  entry,
+  index,
+  slotMetrics,
+}: {
+  breeze: Animated.Value;
+  entry: ForestDioramaTreeEntry;
+  index: number;
+  slotMetrics: ReturnType<typeof getForestDioramaScaledSlotMetrics>;
+}) {
+  const touchJolt = useRef(new Animated.Value(0)).current;
+  const treeMotion = getForestDioramaTreeMotion({ slotIndex: index });
+  const treeDirection = treeMotion.direction;
+  const treeRotate = breeze.interpolate({
+    inputRange: [0, 0.25, 0.5, 0.75, 1],
+    outputRange: [
+      '0deg',
+      `${treeMotion.rotateDeg * treeDirection}deg`,
+      '0deg',
+      `${-treeMotion.rotateDeg * treeDirection}deg`,
+      '0deg',
+    ],
+  });
+  const treeTranslateX = breeze.interpolate({
+    inputRange: [0, 0.25, 0.5, 0.75, 1],
+    outputRange: [
+      0,
+      treeMotion.translateX * treeDirection,
+      0,
+      -treeMotion.translateX * treeDirection,
+      0,
+    ],
+  });
+  const treeTranslateY = breeze.interpolate({
+    inputRange: [0, 0.5, 1],
+    outputRange: [0, -treeMotion.translateY, 0],
+  });
+  const joltScale = touchJolt.interpolate({
+    inputRange: [0, 0.28, 0.62, 1],
+    outputRange: [1, 1.08, 0.975, 1],
+  });
+  const joltRotate = touchJolt.interpolate({
+    inputRange: [0, 0.24, 0.58, 1],
+    outputRange: ['0deg', '-3deg', '2.2deg', '0deg'],
+  });
+  const joltTranslateY = touchJolt.interpolate({
+    inputRange: [0, 0.28, 0.62, 1],
+    outputRange: [0, -4, 1.5, 0],
+  });
+
+  const handleTreePressIn = useCallback(() => {
+    touchJolt.stopAnimation();
+    touchJolt.setValue(0);
+    Animated.sequence([
+      Animated.timing(touchJolt, {
+        toValue: 0.55,
+        duration: 105,
+        easing: Easing.out(Easing.cubic),
+        useNativeDriver: USE_NATIVE_ANIMATION_DRIVER,
+      }),
+      Animated.timing(touchJolt, {
+        toValue: 1,
+        duration: 190,
+        easing: Easing.out(Easing.back(1.15)),
+        useNativeDriver: USE_NATIVE_ANIMATION_DRIVER,
+      }),
+    ]).start(({ finished }) => {
+      if (finished) {
+        touchJolt.setValue(0);
+      }
+    });
+  }, [touchJolt]);
+
+  return (
+    <View
+      pointerEvents="box-none"
+      style={[
+        styles.forestDioramaSlot,
+        {
+          height: slotMetrics.height,
+          left: `${slotMetrics.left}%`,
+          top: `${slotMetrics.top}%`,
+          width: slotMetrics.width,
+          zIndex: slotMetrics.zIndex,
+          transform: [
+            { translateX: slotMetrics.translateX },
+            { translateY: slotMetrics.translateY },
+          ],
+        },
+      ]}>
+      <View
+        pointerEvents="none"
+        style={[
+          styles.forestDioramaPlantShadow,
+          {
+            bottom: slotMetrics.treeRootOffsetY - 4,
+            width: Math.max(16, slotMetrics.treeWidth * 0.4),
+          },
+        ]}
+      />
+      <Pressable
+        accessibilityRole="button"
+        accessibilityLabel={`${entry.title} tree`}
+        android_disableSound
+        hitSlop={8}
+        onPressIn={handleTreePressIn}
+        style={styles.forestDioramaTreePressable}>
+        <Animated.View
+          style={[
+            styles.forestDioramaTree,
+            {
+              height: slotMetrics.treeHeight,
+              width: slotMetrics.treeWidth,
+              transform: [
+                { translateX: treeTranslateX },
+                { translateY: treeTranslateY },
+                { translateY: joltTranslateY },
+                { rotate: treeRotate },
+                { rotate: joltRotate },
+                { scale: joltScale },
+              ],
+            },
+          ]}>
+          <ExpoImage
+            accessibilityIgnoresInvertColors
+            source={entry.image}
+            contentFit="contain"
+            cachePolicy="memory-disk"
+            priority="high"
+            recyclingKey={`diorama-tree-${entry.id}`}
+            style={styles.forestDioramaTreeImage}
+          />
+        </Animated.View>
+      </Pressable>
+    </View>
+  );
+}
+
+function HiddenGrowImageWarmers({
+  enabled,
+  idPrefix,
+  sources,
+}: {
+  enabled: boolean;
+  idPrefix: string;
+  sources: readonly ImageSourcePropType[];
+}) {
+  const uniqueSources = useMemo(() => getUniqueGrowImageSources(sources), [sources]);
+
+  if (!enabled || uniqueSources.length === 0) {
+    return null;
+  }
+
+  return (
+    <View
+      pointerEvents="none"
+      accessibilityElementsHidden
+      importantForAccessibility="no-hide-descendants"
+      style={styles.hiddenGrowImageWarmers}>
+      {uniqueSources.map((source, index) => {
+        const signature = getGrowImageSourceSignature(source);
+
+        return (
+          <ExpoImage
+            key={`${idPrefix}-${signature}`}
+            accessibilityIgnoresInvertColors
+            accessible={false}
+            source={source}
+            contentFit="contain"
+            cachePolicy="memory-disk"
+            priority="high"
+            recyclingKey={`${idPrefix}-${index}`}
+            style={styles.hiddenGrowImageWarmer}
+          />
+        );
+      })}
+    </View>
+  );
+}
+
 function CollectionSilhouette({
   kind,
   source,
@@ -366,6 +689,7 @@ function CollectionSilhouette({
           accessibilityIgnoresInvertColors
           source={source}
           contentFit="contain"
+          cachePolicy="memory-disk"
           tintColor="#1F1711"
           style={[
             styles.collectionSilhouetteImage,
@@ -390,34 +714,48 @@ function CollectionSilhouette({
 }
 
 function RoamingAnimal({
+  area = 'grow',
   bottom,
   companion,
   imageAssets,
   index,
+  layerZIndex,
+  maxVisualWidth,
+  previewImage,
   reduceMotion,
+  sceneHeight,
   sceneWidth,
   size,
+  top,
 }: {
-  bottom: number;
+  area?: RoamingAnimalArea;
+  bottom?: number;
   companion: AnimalCompanion;
   imageAssets: {
     walkingImage: ImageSourcePropType;
     idleImage: ImageSourcePropType;
   };
   index: number;
+  layerZIndex?: number;
+  maxVisualWidth?: number;
+  previewImage?: ImageSourcePropType | null;
   reduceMotion: boolean;
+  sceneHeight?: number;
   sceneWidth: number;
   size: number;
+  top?: number;
 }) {
   const translateX = useRef(new Animated.Value(0)).current;
   const translateY = useRef(new Animated.Value(0)).current;
   const directionScale = useRef(new Animated.Value(1)).current;
-  const walkingOpacity = useRef(new Animated.Value(reduceMotion ? 0 : 1)).current;
-  const idleOpacity = useRef(new Animated.Value(reduceMotion ? 1 : 0)).current;
-  const poseRef = useRef<RoamingAnimalPose>(reduceMotion ? 'idle' : 'walking');
+  const walkingOpacity = useRef(new Animated.Value(0)).current;
+  const idleOpacity = useRef(new Animated.Value(1)).current;
+  const poseRef = useRef<RoamingAnimalPose>('idle');
   const poseStartedAtMsRef = useRef(Date.now());
   const poseTransitionTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const [pose, setPose] = useState<RoamingAnimalPose>(reduceMotion ? 'idle' : 'walking');
+  const walkingCycleStartedAtMsRef = useRef(Date.now());
+  const walkingImageReadyRef = useRef(false);
+  const [pose, setPose] = useState<RoamingAnimalPose>('idle');
   const walkingImageScale = getAnimalCompanionImageScale({
     companionId: companion.id,
     pose: 'walking',
@@ -434,6 +772,12 @@ function RoamingAnimal({
     companionId: companion.id,
     pose: 'idle',
   });
+  const walkingFrameWidthPercent = maxVisualWidth
+    ? Math.min(walkingImageFrameScaleX * 100, (maxVisualWidth / size) * 100)
+    : walkingImageFrameScaleX * 100;
+  const idleFrameWidthPercent = maxVisualWidth
+    ? Math.min(idleImageFrameScaleX * 100, (maxVisualWidth / size) * 100)
+    : idleImageFrameScaleX * 100;
 
   const clearScheduledPoseChange = useCallback(() => {
     if (poseTransitionTimeoutRef.current) {
@@ -441,6 +785,20 @@ function RoamingAnimal({
       poseTransitionTimeoutRef.current = null;
     }
   }, []);
+
+  const markWalkingImageDisplayed = useCallback(() => {
+    if (walkingImageReadyRef.current) {
+      return;
+    }
+
+    walkingImageReadyRef.current = true;
+    walkingCycleStartedAtMsRef.current = Date.now();
+  }, []);
+
+  useEffect(() => {
+    walkingImageReadyRef.current = false;
+    walkingCycleStartedAtMsRef.current = Date.now();
+  }, [companion.id, imageAssets.walkingImage]);
 
   const commitPoseChange = useCallback(
     (nextPose: RoamingAnimalPose) => {
@@ -491,7 +849,7 @@ function RoamingAnimal({
   );
 
   useEffect(() => {
-    const transitionDurationMs = reduceMotion ? 0 : 180;
+    const transitionDurationMs = 0;
 
     Animated.parallel([
       Animated.timing(walkingOpacity, {
@@ -514,17 +872,25 @@ function RoamingAnimal({
     let idleTimeout: ReturnType<typeof setTimeout> | null = null;
     let turnTimeout: ReturnType<typeof setTimeout> | null = null;
     let motionTimeout: ReturnType<typeof setTimeout> | null = null;
-    let step = getRoamingAnimalInitialStep({ index });
+    let step = getRoamingAnimalInitialStep({ area, index });
     let previousDirectionScaleX: RoamingAnimalDirectionScaleX | null = null;
-    let walkingCycleStartedAtMs = Date.now();
     let restCycle = 0;
     let completedWalksSinceRest = 0;
     let nextRestWalkCount = getRoamingAnimalNextRestWalkCount({
+      area,
       companionId: companion.id,
       cycle: restCycle,
       index,
     });
-    const firstPoint = getRoamingAnimalPoint({ index, sceneWidth, size, step });
+    const firstPoint = getRoamingAnimalPoint({
+      area,
+      companionId: companion.id,
+      index,
+      sceneHeight,
+      sceneWidth,
+      size,
+      step,
+    });
 
     translateX.setValue(firstPoint.x);
     translateY.setValue(firstPoint.y);
@@ -556,17 +922,34 @@ function RoamingAnimal({
       }
     };
     const scheduleNextMove = () => {
-      const fromPoint = getRoamingAnimalPoint({ index, sceneWidth, size, step });
-      const toPoint = getRoamingAnimalPoint({ index, sceneWidth, size, step: step + 1 });
+      const fromPoint = getRoamingAnimalPoint({
+        area,
+        companionId: companion.id,
+        index,
+        sceneHeight,
+        sceneWidth,
+        size,
+        step,
+      });
+      const toPoint = getRoamingAnimalPoint({
+        area,
+        companionId: companion.id,
+        index,
+        sceneHeight,
+        sceneWidth,
+        size,
+        step: step + 1,
+      });
       const move = getRoamingAnimalMove({
+        area,
         companionId: companion.id,
         from: fromPoint,
         size,
         to: toPoint,
       });
       const resting = step > 0 && completedWalksSinceRest >= nextRestWalkCount;
-      const idleDelay = getRoamingAnimalIdleDelayMs({ index, resting, step });
-      const firstWalkDelay = getRoamingAnimalInitialDelayMs({ index });
+      const idleDelay = getRoamingAnimalIdleDelayMs({ area, index, resting, step });
+      const firstWalkDelay = getRoamingAnimalInitialDelayMs({ area, index });
       let segmentProgress = 0;
 
       clearRoamTimeout();
@@ -580,9 +963,16 @@ function RoamingAnimal({
           return;
         }
 
+        if (!walkingImageReadyRef.current) {
+          requestPoseChange(getRoamingAnimalPose({ walking: true }));
+          motionTimeout = setTimeout(animateMove, 50);
+
+          return;
+        }
+
         const motionState = getRoamingAnimalMotionState({
           companionId: companion.id,
-          elapsedMs: Date.now() - walkingCycleStartedAtMs,
+          elapsedMs: Date.now() - walkingCycleStartedAtMsRef.current,
         });
 
         if (!motionState.moving) {
@@ -607,16 +997,17 @@ function RoamingAnimal({
         }
 
         requestPoseChange(getRoamingAnimalPose({ walking: true }));
-        const chunkDurationMs = Math.max(
-          16,
-          Math.min(remainingMoveDurationMs, motionState.remainingMovingMs),
-        );
+        const chunkDurationMs = getRoamingAnimalMotionChunkDurationMs({
+          remainingMoveDurationMs,
+          remainingMovingMs: motionState.remainingMovingMs,
+        });
         const nextProgress = Math.min(
           1,
           segmentProgress + chunkDurationMs / move.durationMs,
         );
-        const nextX = Math.round(fromPoint.x + move.deltaX * nextProgress);
-        const nextY = Math.round(fromPoint.y + move.deltaY * nextProgress);
+        const nextMovementProgress = getRoamingAnimalMovementProgress(nextProgress);
+        const nextX = Math.round(fromPoint.x + move.deltaX * nextMovementProgress);
+        const nextY = Math.round(fromPoint.y + move.deltaY * nextMovementProgress);
 
         Animated.parallel([
           Animated.timing(translateX, {
@@ -650,10 +1041,6 @@ function RoamingAnimal({
       const startWalking = ({ wasIdle }: { wasIdle: boolean }) => {
         if (!mounted) {
           return;
-        }
-
-        if (wasIdle) {
-          walkingCycleStartedAtMs = Date.now();
         }
 
         requestPoseChange(getRoamingAnimalPose({ walking: true }), () => {
@@ -695,6 +1082,7 @@ function RoamingAnimal({
             completedWalksSinceRest = 0;
             restCycle += 1;
             nextRestWalkCount = getRoamingAnimalNextRestWalkCount({
+              area,
               companionId: companion.id,
               cycle: restCycle,
               index,
@@ -725,16 +1113,23 @@ function RoamingAnimal({
   }, [
     clearScheduledPoseChange,
     commitPoseChange,
+    area,
     companion.id,
     directionScale,
     index,
     reduceMotion,
     requestPoseChange,
+    sceneHeight,
     sceneWidth,
     size,
     translateX,
     translateY,
   ]);
+
+  const verticalPositionStyle =
+    area === 'forest'
+      ? { top: top ?? 0 }
+      : { bottom: bottom ?? 0 };
 
   return (
     <Animated.View
@@ -744,10 +1139,11 @@ function RoamingAnimal({
       importantForAccessibility="no-hide-descendants"
       style={[
         styles.roamingAnimalWrap,
+        verticalPositionStyle,
         {
-          bottom,
           width: size,
           height: size,
+          zIndex: layerZIndex,
           transform: [{ translateX }, { translateY }],
         },
       ]}>
@@ -759,17 +1155,22 @@ function RoamingAnimal({
               opacity: walkingOpacity,
               transform: [{ scaleX: directionScale }],
             },
-          ]}>
+        ]}>
           <ExpoImage
             accessibilityIgnoresInvertColors
             source={imageAssets.walkingImage}
+            placeholder={previewImage}
+            placeholderContentFit="contain"
             contentFit="contain"
             cachePolicy="memory-disk"
+            onDisplay={markWalkingImageDisplayed}
+            priority="high"
+            recyclingKey={`roaming-${companion.id}-walking`}
             style={[
               styles.roamingAnimalImage,
-              walkingImageFrameScaleX !== 1 && {
+              walkingFrameWidthPercent !== 100 && {
                 alignSelf: 'center',
-                width: `${walkingImageFrameScaleX * 100}%`,
+                width: `${walkingFrameWidthPercent}%`,
               },
               walkingImageScale !== 1 && { transform: [{ scale: walkingImageScale }] },
             ]}
@@ -780,17 +1181,21 @@ function RoamingAnimal({
           style={[
             styles.roamingAnimalPoseLayer,
             { opacity: idleOpacity },
-          ]}>
+        ]}>
           <ExpoImage
             accessibilityIgnoresInvertColors
             source={imageAssets.idleImage}
+            placeholder={previewImage}
+            placeholderContentFit="contain"
             contentFit="contain"
             cachePolicy="memory-disk"
+            priority="high"
+            recyclingKey={`roaming-${companion.id}-idle`}
             style={[
               styles.roamingAnimalImage,
-              idleImageFrameScaleX !== 1 && {
+              idleFrameWidthPercent !== 100 && {
                 alignSelf: 'center',
-                width: `${idleImageFrameScaleX * 100}%`,
+                width: `${idleFrameWidthPercent}%`,
               },
               idleImageScale !== 1 && { transform: [{ scale: idleImageScale }] },
             ]}
@@ -904,10 +1309,38 @@ export function GrowScreen() {
   const [selectedTreeStageIndex, setSelectedTreeStageIndex] = useState(4);
   const [completedTreeCount, setCompletedTreeCount] = useState(growPreviewCompletedTreeCount);
   const [forestVisible, setForestVisible] = useState(false);
+  const [forestHasOpened, setForestHasOpened] = useState(false);
   const [mapVisible, setMapVisible] = useState(false);
+  const [mapHasOpened, setMapHasOpened] = useState(false);
   const [selectedMapIndex, setSelectedMapIndex] = useState(0);
+  const [collectionHasOpened, setCollectionHasOpened] = useState(false);
   const [reduceMotionEnabled, setReduceMotionEnabled] = useState(false);
   const [isAdminUser, setIsAdminUser] = useState(false);
+  const [adminStatusReady, setAdminStatusReady] = useState(false);
+  const [completedTreeCountReady, setCompletedTreeCountReady] = useState(Boolean(growPreviewTree));
+  const [growPreferencesReady, setGrowPreferencesReady] = useState(false);
+  const [currentGrowAssetsReadyKey, setCurrentGrowAssetsReadyKey] = useState<string | null>(null);
+  const [currentRoamingAnimalAssetsReadyKey, setCurrentRoamingAnimalAssetsReadyKey] = useState<
+    string | null
+  >(null);
+  const [forestRoamingAnimalAssetsReadyKey, setForestRoamingAnimalAssetsReadyKey] = useState<
+    string | null
+  >(null);
+  const [growSceneHasRendered, setGrowSceneHasRendered] = useState(false);
+  const [forestDioramaSceneHasRendered, setForestDioramaSceneHasRendered] = useState(false);
+  const [forestDioramaAssetsReadyKey, setForestDioramaAssetsReadyKey] = useState<string | null>(
+    null,
+  );
+  const [forestDioramaBoardWidth, setForestDioramaBoardWidth] = useState(() =>
+    Math.min(470, Math.max(FOREST_DIORAMA_BOARD_WIDTH, width * 1.1)),
+  );
+  const [forestDioramaBoardHeight, setForestDioramaBoardHeight] = useState(() =>
+    Math.round(
+      (Math.min(470, Math.max(FOREST_DIORAMA_BOARD_WIDTH, width * 1.1)) /
+        FOREST_DIORAMA_BOARD_WIDTH) *
+        FOREST_DIORAMA_BOARD_HEIGHT,
+    ),
+  );
   const [adminControlsOpen, setAdminControlsOpen] = useState(false);
   const [adminGrowthBusy, setAdminGrowthBusy] = useState(false);
   const [adminGrowthError, setAdminGrowthError] = useState<string | null>(null);
@@ -920,9 +1353,21 @@ export function GrowScreen() {
   const treeCanopyLeftBreeze = useRef(new Animated.Value(0)).current;
   const treeCanopyCenterBreeze = useRef(new Animated.Value(0)).current;
   const treeCanopyRightBreeze = useRef(new Animated.Value(0)).current;
+  const forestDioramaDrift = useRef(new Animated.Value(0)).current;
+  const forestDioramaThemeTransition = useRef(new Animated.Value(1)).current;
+  const forestDioramaPan = useRef(new Animated.ValueXY({ x: 0, y: 0 })).current;
+  const forestDioramaZoom = useRef(new Animated.Value(FOREST_DIORAMA_MIN_ZOOM)).current;
+  const forestDioramaZoomValue = useRef(FOREST_DIORAMA_MIN_ZOOM);
+  const forestDioramaZoomStart = useRef(FOREST_DIORAMA_MIN_ZOOM);
+  const forestDioramaPanValue = useRef({ x: 0, y: 0 });
+  const forestDioramaPanStart = useRef({ x: 0, y: 0 });
+  const forestDioramaPinchDistanceStart = useRef<number | null>(null);
+  const forestDioramaPinchCenterStart = useRef<{ x: number; y: number } | null>(null);
+  const forestDioramaGestureMode = useRef<'pan' | 'pinch' | null>(null);
   const completionSlide = useRef(new Animated.Value(0)).current;
   const previousTreeRef = useRef<ActiveTree | null>(null);
   const animalSelectionTouchedRef = useRef(false);
+  const growPreferencesRestoredRef = useRef(false);
   const sheetProgress = useRef(new Animated.Value(0)).current;
   const sheetProgressValue = useRef(0);
   const dragStartProgress = useRef(0);
@@ -932,12 +1377,13 @@ export function GrowScreen() {
   const speciesId = tree?.speciesId ?? TREE_SPECIES[0]?.id ?? 'apple';
   const stage = tree ? getGrowthStage(tree.growthPoints) : 'seed';
   const growthDay = tree ? Math.min(COMPLETE_GROWTH_POINTS, tree.growthPoints) : 0;
-  const stageLabel = getStageLabel(stage);
+  const treeSpeciesLabel = getSpeciesLabel(speciesId);
+  const stageLabel = getStageLabel(stage, treeSpeciesLabel);
   const stageProgressPercent = getStageProgressPercent(growthDay, stage);
   const growthVerse = getStableTreeVerse(getStableTreeVerseKey(tree, speciesId));
   const displayedCollectionKind = activeCollection ?? lastCollectionKind;
   const activeCollectionTitle = displayedCollectionKind === 'tree' ? 'Tree Book' : 'Animal Book';
-  const treeSpeciesLabel = getSpeciesLabel(speciesId);
+  const selectedDioramaTheme = FOREST_FLAT_MAP;
   const sharedPrayerCount = countGrowthEvents(tree, 'prayer_posted');
   const carriedPrayerCount = countGrowthEvents(tree, 'reaction_given');
   const plantedAtLabel = formatTreeStartedDate(tree?.startedAt);
@@ -945,6 +1391,15 @@ export function GrowScreen() {
     activeTree: tree,
     completedTreeCount,
   });
+  const selectedDioramaTreeWindow = useMemo(
+    () =>
+      getForestDioramaThemeTreeWindow({
+        completedTreeCount: fruitBearingTreeCount,
+        isAdmin: isAdminUser,
+        themeIndex: 0,
+      }),
+    [fruitBearingTreeCount, isAdminUser],
+  );
   const wheelCardWidth = Math.round(Math.min(286, Math.max(236, width * 0.72)));
   const wheelCardGap = 14;
   const wheelSnapInterval = wheelCardWidth + wheelCardGap;
@@ -979,17 +1434,33 @@ export function GrowScreen() {
     [selectedRoamingCompanionIds],
   );
   const roamingAnimalEntries = useMemo(
-    () =>
-      selectRoamingAnimalCompanions({
+    () => {
+      if (!growPreferencesReady) {
+        return [];
+      }
+
+      return selectRoamingAnimalCompanions({
         fillUnselected: selectedRoamingCompanionIds.length === 0,
         selectedCompanionIds: selectedRoamingCompanionIds,
         unlockedCompanions: unlockedAnimalCompanions,
       }).flatMap((companion) => {
         const imageAssets = ANIMAL_COMPANION_IMAGE_ASSETS[companion.id];
+        const previewImage = ANIMAL_COMPANION_PREVIEW_IMAGES[companion.id] ?? null;
 
-        return imageAssets ? [{ companion, imageAssets }] : [];
+        return imageAssets ? [{ companion, imageAssets, previewImage }] : [];
+      });
+    },
+    [growPreferencesReady, selectedRoamingCompanionIds, unlockedAnimalCompanions],
+  );
+  const forestRoamingAnimalEntries = useMemo(
+    () =>
+      unlockedAnimalCompanions.flatMap((companion) => {
+        const imageAssets = ANIMAL_COMPANION_IMAGE_ASSETS[companion.id];
+        const previewImage = ANIMAL_COMPANION_PREVIEW_IMAGES[companion.id] ?? null;
+
+        return imageAssets ? [{ companion, imageAssets, previewImage }] : [];
       }),
-    [selectedRoamingCompanionIds, unlockedAnimalCompanions],
+    [unlockedAnimalCompanions],
   );
   const speciesStageImages = useMemo(
     () => {
@@ -997,21 +1468,48 @@ export function GrowScreen() {
     },
     [speciesId],
   );
+  const speciesStagePreviewImages = useMemo(
+    () =>
+      TREE_STAGE_PREVIEW_IMAGES_BY_SPECIES[speciesId] ??
+      TREE_STAGE_PREVIEW_IMAGES_BY_SPECIES.apple,
+    [speciesId],
+  );
   const stageAsset = useMemo(
     () => speciesStageImages[treeStageIndex(stage)],
     [speciesStageImages, stage],
+  );
+  const stagePreviewAsset = useMemo(
+    () => speciesStagePreviewImages[treeStageIndex(stage)],
+    [speciesStagePreviewImages, stage],
   );
   const resolvedSceneBackground = useMemo(
     () => getBundledGrowImageSource(sceneLayers.backgroundImage),
     [sceneLayers.backgroundImage],
   );
+  const resolvedScenePreviewImage = useMemo(
+    () =>
+      getBundledGrowImageSource(
+        GROW_MAP_PREVIEW_IMAGES[sceneLayers.id] ??
+          sceneLayers.guideImage ??
+          sceneLayers.backgroundImage,
+      ),
+    [sceneLayers.backgroundImage, sceneLayers.guideImage, sceneLayers.id],
+  );
   const resolvedNextFieldImage = useMemo(
     () => getBundledGrowImageSource(GROW_MAP_SCENE_ASSETS.wilderness.backgroundImage),
+    [],
+  );
+  const resolvedNextFieldPreviewImage = useMemo(
+    () => getBundledGrowImageSource(GROW_MAP_PREVIEW_IMAGES.wilderness),
     [],
   );
   const resolvedStageAsset = useMemo(
     () => getBundledGrowImageSource(stageAsset),
     [stageAsset],
+  );
+  const resolvedStagePreviewAsset = useMemo(
+    () => getBundledGrowImageSource(stagePreviewAsset),
+    [stagePreviewAsset],
   );
   const resolvedSceneStillLayer = useMemo(
     () =>
@@ -1031,8 +1529,8 @@ export function GrowScreen() {
     () =>
       TREE_SPECIES.map((species, index) => {
         const finalTreeImage =
-          TREE_STAGE_IMAGES_BY_SPECIES[species.id]?.[4] ??
-          TREE_STAGE_IMAGES_BY_SPECIES.apple[4];
+          TREE_STAGE_PREVIEW_IMAGES_BY_SPECIES[species.id]?.[4] ??
+          TREE_STAGE_PREVIEW_IMAGES_BY_SPECIES.apple[4];
 
         return {
           id: species.id,
@@ -1054,36 +1552,48 @@ export function GrowScreen() {
       ANIMAL_COMPANIONS.map((companion, index) => {
         const imageAssets = ANIMAL_COMPANION_IMAGE_ASSETS[companion.id];
         const unlocked = unlockedAnimalIds.has(companion.id);
+        const previewImage = ANIMAL_COMPANION_PREVIEW_IMAGES[companion.id];
 
         return {
           id: companion.id,
           label: companion.label,
           meta: `#${String(index + 1).padStart(3, '0')}`,
-          image: imageAssets
-            ? getBundledGrowImageSource(imageAssets.idleImage)
-            : null,
+          image: previewImage
+            ? getBundledGrowImageSource(previewImage)
+            : imageAssets
+              ? getBundledGrowImageSource(imageAssets.idleImage)
+              : null,
           unlocksAtFruitBearingTreeCount: companion.unlocksAtFruitBearingTreeCount,
           unlocked,
         };
       }),
     [unlockedAnimalIds],
   );
-  const forestWheelEntries = useMemo(
-    () =>
-      treeWheelEntries.map((entry, index) => ({
-        ...entry,
-        title: entry.unlocked ? entry.label : '???',
-        status: entry.unlocked ? 'Fruiting tree' : 'Locked tree',
-        hint: entry.unlocked
-          ? 'A finished tree will live in this part of your forest.'
-          : 'A silhouette waits here until a tree bears fruit.',
-        meta: entry.unlocked ? `Tree ${index + 1}` : entry.meta,
-      })),
-    [treeWheelEntries],
-  );
   const forestDioramaEntries = useMemo(
-    () => forestWheelEntries.filter((entry) => entry.unlocked).slice(0, FOREST_DIORAMA_SLOTS.length),
-    [forestWheelEntries],
+    () =>
+      Array.from(
+        {
+          length: Math.min(FOREST_DIORAMA_SLOTS.length, selectedDioramaTreeWindow.treeCount),
+        },
+        (_, slotIndex) => {
+          const treeIndex = selectedDioramaTreeWindow.startIndex + slotIndex;
+          const species = TREE_SPECIES[treeIndex % TREE_SPECIES.length] ?? TREE_SPECIES[0];
+          const finalTreeImage =
+            TREE_STAGE_PREVIEW_IMAGES_BY_SPECIES[species.id]?.[4] ??
+            TREE_STAGE_PREVIEW_IMAGES_BY_SPECIES.apple[4];
+
+          return {
+            id: `${selectedDioramaTheme.id}-${treeIndex}-${species.id}`,
+            title: species.label,
+            image: getBundledGrowImageSource(finalTreeImage),
+          };
+        },
+      ),
+    [
+      selectedDioramaTheme.id,
+      selectedDioramaTreeWindow.startIndex,
+      selectedDioramaTreeWindow.treeCount,
+    ],
   );
   const mapWheelEntries = useMemo(
     () =>
@@ -1098,6 +1608,10 @@ export function GrowScreen() {
         }),
       })),
     [fruitBearingTreeCount, isAdminUser],
+  );
+  const mapPreviewWarmupSources = useMemo(
+    () => mapWheelEntries.map((entry) => entry.image).filter(isGrowImageSource),
+    [mapWheelEntries],
   );
   const mapWheelMaxOffset = Math.max(0, (mapWheelEntries.length - 1) * wheelSnapInterval);
   const snapMapWheelToIndex = useCallback(
@@ -1139,6 +1653,160 @@ export function GrowScreen() {
       }),
     [mapWheelMaxOffset, snapMapWheelToIndex, wheelSnapInterval],
   );
+  const forestDioramaPanResponder = useMemo(
+    () =>
+      PanResponder.create({
+        onStartShouldSetPanResponder: (event) => getForestDioramaTouches(event).length >= 2,
+        onMoveShouldSetPanResponder: (event, gestureState) =>
+          getForestDioramaTouches(event).length >= 2 ||
+          Math.abs(gestureState.dx) + Math.abs(gestureState.dy) > 8,
+        onPanResponderGrant: (event) => {
+          forestDioramaPan.stopAnimation((value) => {
+            const currentOffset = clampForestDioramaPanOffset({
+              offset: value,
+              zoom: forestDioramaZoomValue.current,
+            });
+
+            forestDioramaPanStart.current = currentOffset;
+            forestDioramaPanValue.current = currentOffset;
+          });
+          forestDioramaZoom.stopAnimation((value) => {
+            const currentZoom = clampForestDioramaZoom(value);
+
+            forestDioramaZoomStart.current = currentZoom;
+            forestDioramaZoomValue.current = currentZoom;
+            forestDioramaZoom.setValue(currentZoom);
+          });
+
+          const pinchDistance = getForestDioramaPinchDistance(event);
+
+          forestDioramaGestureMode.current = pinchDistance ? 'pinch' : 'pan';
+          forestDioramaPinchDistanceStart.current = pinchDistance;
+          forestDioramaPinchCenterStart.current = getForestDioramaPinchCenter(event);
+        },
+        onPanResponderMove: (event, gestureState) => {
+          const pinchDistance = getForestDioramaPinchDistance(event);
+
+          if (pinchDistance) {
+            if (!forestDioramaPinchDistanceStart.current) {
+              forestDioramaPinchDistanceStart.current = pinchDistance;
+              forestDioramaPinchCenterStart.current = getForestDioramaPinchCenter(event);
+              forestDioramaZoomStart.current = forestDioramaZoomValue.current;
+              forestDioramaPanStart.current = forestDioramaPanValue.current;
+            }
+
+            forestDioramaGestureMode.current = 'pinch';
+
+            const nextZoom = clampForestDioramaZoom(
+              forestDioramaZoomStart.current *
+                (pinchDistance / forestDioramaPinchDistanceStart.current),
+            );
+            const pinchCenter = getForestDioramaPinchCenter(event);
+            const pinchCenterStart = forestDioramaPinchCenterStart.current ?? pinchCenter;
+            const centerDelta = pinchCenter && pinchCenterStart
+              ? {
+                  x: pinchCenter.x - pinchCenterStart.x,
+                  y: pinchCenter.y - pinchCenterStart.y,
+                }
+              : { x: 0, y: 0 };
+            const nextOffset = clampForestDioramaPanOffset({
+              offset: {
+                x: forestDioramaPanStart.current.x + centerDelta.x,
+                y: forestDioramaPanStart.current.y + centerDelta.y,
+              },
+              zoom: nextZoom,
+            });
+
+            forestDioramaZoomValue.current = nextZoom;
+            forestDioramaPanValue.current = nextOffset;
+            forestDioramaZoom.setValue(nextZoom);
+            forestDioramaPan.setValue(nextOffset);
+
+            return;
+          }
+
+          if (forestDioramaGestureMode.current === 'pinch') {
+            return;
+          }
+
+          const nextOffset = clampForestDioramaPanOffset({
+            offset: {
+              x: forestDioramaPanStart.current.x + gestureState.dx,
+              y: forestDioramaPanStart.current.y + gestureState.dy,
+            },
+            zoom: forestDioramaZoomValue.current,
+          });
+
+          forestDioramaPanValue.current = nextOffset;
+          forestDioramaPan.setValue(nextOffset);
+        },
+        onPanResponderRelease: (_, gestureState) => {
+          const isPinching = forestDioramaGestureMode.current === 'pinch';
+          const nextZoom = clampForestDioramaZoom(forestDioramaZoomValue.current);
+          const nextOffset = clampForestDioramaPanOffset({
+            offset: isPinching
+              ? forestDioramaPanValue.current
+              : {
+                  x: forestDioramaPanStart.current.x + gestureState.dx + gestureState.vx * 18,
+                  y: forestDioramaPanStart.current.y + gestureState.dy + gestureState.vy * 18,
+                },
+            zoom: nextZoom,
+          });
+
+          forestDioramaGestureMode.current = null;
+          forestDioramaPinchDistanceStart.current = null;
+          forestDioramaPinchCenterStart.current = null;
+          forestDioramaZoomStart.current = nextZoom;
+          forestDioramaZoomValue.current = nextZoom;
+          forestDioramaPanStart.current = nextOffset;
+          forestDioramaPanValue.current = nextOffset;
+          Animated.spring(forestDioramaPan, {
+            toValue: nextOffset,
+            damping: 19,
+            stiffness: 160,
+            mass: 0.8,
+            useNativeDriver: true,
+          }).start();
+          Animated.spring(forestDioramaZoom, {
+            toValue: nextZoom,
+            damping: 20,
+            stiffness: 170,
+            mass: 0.7,
+            useNativeDriver: true,
+          }).start();
+        },
+        onPanResponderTerminate: () => {
+          const nextZoom = clampForestDioramaZoom(forestDioramaZoomValue.current);
+          const nextOffset = clampForestDioramaPanOffset({
+            offset: forestDioramaPanValue.current,
+            zoom: nextZoom,
+          });
+
+          forestDioramaGestureMode.current = null;
+          forestDioramaPinchDistanceStart.current = null;
+          forestDioramaPinchCenterStart.current = null;
+          forestDioramaZoomStart.current = nextZoom;
+          forestDioramaZoomValue.current = nextZoom;
+          forestDioramaPanStart.current = nextOffset;
+          forestDioramaPanValue.current = nextOffset;
+          Animated.spring(forestDioramaPan, {
+            toValue: nextOffset,
+            damping: 19,
+            stiffness: 160,
+            mass: 0.8,
+            useNativeDriver: true,
+          }).start();
+          Animated.spring(forestDioramaZoom, {
+            toValue: nextZoom,
+            damping: 20,
+            stiffness: 170,
+            mass: 0.7,
+            useNativeDriver: true,
+          }).start();
+        },
+      }),
+    [forestDioramaPan, forestDioramaZoom],
+  );
   const selectMapScene = useCallback(
     (index: number) => {
       const targetArea = mapWheelEntries[index];
@@ -1165,6 +1833,8 @@ export function GrowScreen() {
   const treeBaseLayerTop = Math.max(0, treeLeafLayerHeight - treeLayerOverlap);
   const treeBottomOffset = Math.min(438, Math.max(388, height * 0.51));
   const roamingAnimalSize = Math.round(clamp(width * 0.2, 72, 104));
+  const forestRoamingAnimalSize = Math.round(clamp(width * 0.085, 30, 38));
+  const forestRoamingAnimalMaxVisualWidth = Math.round(forestRoamingAnimalSize * 1.24);
   const roamingAnimalBottom = Math.max(
     236,
     treeBottomOffset - Math.round(roamingAnimalSize * 0.56),
@@ -1300,6 +1970,7 @@ export function GrowScreen() {
   ];
 
   function openCollection(kind: CollectionKind) {
+    setCollectionHasOpened(true);
     setLastCollectionKind(kind);
     setSelectedCollectionSlot(null);
     setSelectedTreeStageIndex(4);
@@ -1319,6 +1990,25 @@ export function GrowScreen() {
     setActiveCollection(null);
     setSelectedCollectionSlot(null);
     setSelectedTreeStageIndex(4);
+  }
+
+  function openForestDiorama() {
+    forestDioramaGestureMode.current = null;
+    forestDioramaPinchDistanceStart.current = null;
+    forestDioramaPinchCenterStart.current = null;
+    forestDioramaZoomStart.current = FOREST_DIORAMA_MIN_ZOOM;
+    forestDioramaZoomValue.current = FOREST_DIORAMA_MIN_ZOOM;
+    forestDioramaPanStart.current = { x: 0, y: 0 };
+    forestDioramaPanValue.current = { x: 0, y: 0 };
+    forestDioramaZoom.setValue(FOREST_DIORAMA_MIN_ZOOM);
+    forestDioramaPan.setValue({ x: 0, y: 0 });
+    setForestHasOpened(true);
+    setForestVisible(true);
+  }
+
+  function openMapPicker() {
+    setMapHasOpened(true);
+    setMapVisible(true);
   }
 
   const toggleRoamingAnimalSelection = useCallback(
@@ -1372,6 +2062,109 @@ export function GrowScreen() {
   );
 
   useEffect(() => {
+    if (
+      !treeSnapshotReady ||
+      !completedTreeCountReady ||
+      !adminStatusReady ||
+      growPreferencesRestoredRef.current
+    ) {
+      return undefined;
+    }
+
+    let mounted = true;
+    growPreferencesRestoredRef.current = true;
+
+    loadGrowPreferences()
+      .then((preferences) => {
+        if (!mounted) {
+          return;
+        }
+
+        if (preferences?.selectedMapSceneId) {
+          const restoredMapIndex = mapWheelEntries.findIndex(
+            (area) => area.unlocked && area.scene.id === preferences.selectedMapSceneId,
+          );
+
+          if (restoredMapIndex >= 0) {
+            const restoredMapArea = mapWheelEntries[restoredMapIndex];
+
+            setSceneLayers(restoredMapArea.scene);
+            setShowNextScene(false);
+            completionSlide.setValue(0);
+            snapMapWheelToIndex(restoredMapIndex, false);
+          }
+        }
+
+        if (preferences) {
+          animalSelectionTouchedRef.current = preferences.animalSelectionTouched;
+
+          const restoredAnimalIds = getNextSelectedAnimalCompanionIds({
+            manuallySelected: preferences.animalSelectionTouched,
+            selectedCompanionIds: preferences.selectedRoamingCompanionIds,
+            unlockedCompanionIds: unlockedAnimalCompanionIds,
+          });
+          const fallbackAnimalIds =
+            restoredAnimalIds.length === 0 && preferences.selectedRoamingCompanionIds.length > 0
+              ? normalizeSelectedAnimalCompanionIds({
+                  fillFromUnlocked: true,
+                  selectedCompanionIds: [],
+                  unlockedCompanionIds: unlockedAnimalCompanionIds,
+                })
+              : restoredAnimalIds;
+
+          if (fallbackAnimalIds.length > 0) {
+            setSelectedRoamingCompanionIds(fallbackAnimalIds);
+          }
+        }
+
+        setGrowPreferencesReady(true);
+      })
+      .catch((error) => {
+        console.warn('Could not load grow preferences.', error);
+
+        if (mounted) {
+          setGrowPreferencesReady(true);
+        }
+      });
+
+    return () => {
+      mounted = false;
+    };
+  }, [
+    adminStatusReady,
+    completedTreeCountReady,
+    completionSlide,
+    mapWheelEntries,
+    snapMapWheelToIndex,
+    treeSnapshotReady,
+    unlockedAnimalCompanionIds,
+  ]);
+
+  useEffect(() => {
+    if (!growPreferencesReady) {
+      return;
+    }
+
+    void persistGrowPreferences({
+      animalSelectionTouched: animalSelectionTouchedRef.current,
+      selectedDioramaThemeId: selectedDioramaTheme.id,
+      selectedMapSceneId: sceneLayers.id,
+      selectedRoamingCompanionIds,
+    }).catch((error) => {
+      console.warn('Could not save grow preferences.', error);
+    });
+  }, [growPreferencesReady, sceneLayers.id, selectedDioramaTheme.id, selectedRoamingCompanionIds]);
+
+  useEffect(() => {
+    const nextBoardWidth = Math.min(470, Math.max(FOREST_DIORAMA_BOARD_WIDTH, width * 1.1));
+
+    setForestDioramaBoardWidth(nextBoardWidth);
+    setForestDioramaBoardHeight(
+      Math.round((nextBoardWidth / FOREST_DIORAMA_BOARD_WIDTH) * FOREST_DIORAMA_BOARD_HEIGHT),
+    );
+  }, [width]);
+
+  useEffect(() => {
     setSelectedRoamingCompanionIds((currentCompanionIds) => {
       const nextCompanionIds = getNextSelectedAnimalCompanionIds({
         manuallySelected: animalSelectionTouchedRef.current,
@@ -1392,12 +2185,20 @@ export function GrowScreen() {
     subscribeToCurrentUserAdminStatus((nextAdminStatus) => {
       if (mounted) {
         setIsAdminUser(nextAdminStatus);
+        setAdminStatusReady(true);
       }
     }).then((nextUnsubscribe) => {
       if (mounted) {
         unsubscribe = nextUnsubscribe;
       } else {
         nextUnsubscribe();
+      }
+    }).catch((error) => {
+      console.warn('Could not subscribe to admin status.', error);
+
+      if (mounted) {
+        setIsAdminUser(false);
+        setAdminStatusReady(true);
       }
     });
 
@@ -1497,14 +2298,24 @@ export function GrowScreen() {
 
     if (growPreviewTree) {
       setCompletedTreeCount(growPreviewCompletedTreeCount);
+      setCompletedTreeCountReady(true);
       return () => {
         mounted = false;
       };
     }
 
+    setCompletedTreeCountReady(false);
+
     fetchPersistedCompletedTreeCount().then((nextCompletedTreeCount) => {
       if (mounted) {
         setCompletedTreeCount(nextCompletedTreeCount);
+        setCompletedTreeCountReady(true);
+      }
+    }).catch((error) => {
+      console.warn('Could not load completed tree count.', error);
+
+      if (mounted) {
+        setCompletedTreeCountReady(true);
       }
     });
 
@@ -1764,6 +2575,63 @@ export function GrowScreen() {
     treeCanopyRightBreeze,
   ]);
 
+  useEffect(() => {
+    if (!forestVisible || shouldReduceMotion) {
+      forestDioramaDrift.setValue(0);
+      return undefined;
+    }
+
+    const treeMotion = getForestDioramaTreeMotion({ slotIndex: 0 });
+    const halfTreeMotionDurationMs = Math.round(treeMotion.durationMs / 2);
+
+    forestDioramaDrift.setValue(0);
+    const backgroundLoop = Animated.loop(
+      Animated.sequence([
+        Animated.timing(forestDioramaDrift, {
+          toValue: 0.5,
+          duration: halfTreeMotionDurationMs,
+          easing: Easing.inOut(Easing.sin),
+          useNativeDriver: USE_NATIVE_ANIMATION_DRIVER,
+        }),
+        Animated.timing(forestDioramaDrift, {
+          toValue: 1,
+          duration: halfTreeMotionDurationMs,
+          easing: Easing.inOut(Easing.sin),
+          useNativeDriver: USE_NATIVE_ANIMATION_DRIVER,
+        }),
+      ]),
+    );
+    backgroundLoop.start();
+
+    return () => {
+      backgroundLoop.stop();
+    };
+  }, [
+    forestDioramaDrift,
+    forestVisible,
+    shouldReduceMotion,
+  ]);
+
+  useEffect(() => {
+    if (!forestVisible) {
+      forestDioramaThemeTransition.setValue(1);
+      return;
+    }
+
+    if (shouldReduceMotion) {
+      forestDioramaThemeTransition.setValue(1);
+      return;
+    }
+
+    forestDioramaThemeTransition.setValue(0);
+    Animated.timing(forestDioramaThemeTransition, {
+      toValue: 1,
+      duration: 640,
+      easing: Easing.out(Easing.cubic),
+      useNativeDriver: USE_NATIVE_ANIMATION_DRIVER,
+    }).start();
+  }, [forestDioramaThemeTransition, forestVisible, shouldReduceMotion]);
+
   const collectionWheelEntries = displayedCollectionKind === 'tree' ? treeWheelEntries : animalWheelEntries;
   const selectedTreeEntry =
     displayedCollectionKind === 'tree' && selectedCollectionSlot !== null
@@ -1773,7 +2641,8 @@ export function GrowScreen() {
   const selectedTreeDetailLabel = selectedTreeEntry?.label ?? treeSpeciesLabel;
   const selectedTreeVerse = getStableTreeVerse(`species:${selectedTreeSpeciesId}`);
   const selectedTreeStageImages =
-    TREE_STAGE_IMAGES_BY_SPECIES[selectedTreeSpeciesId] ?? TREE_STAGE_IMAGES_BY_SPECIES.apple;
+    TREE_STAGE_PREVIEW_IMAGES_BY_SPECIES[selectedTreeSpeciesId] ??
+    TREE_STAGE_PREVIEW_IMAGES_BY_SPECIES.apple;
   const resolvedSelectedTreeStageImages = selectedTreeStageImages.map((source, stageIndex) => ({
     id: `${selectedTreeSpeciesId}-stage-${stageIndex + 1}`,
     speciesId: selectedTreeSpeciesId,
@@ -1786,13 +2655,384 @@ export function GrowScreen() {
     selectedTreeEntry?.image ??
     resolvedStageAsset;
   const showingTreeDetail = Boolean(selectedTreeEntry?.unlocked);
+  const collectionPreviewWarmupSources = useMemo(
+    () =>
+      [
+        ...treeWheelEntries.map((entry) => entry.image),
+        ...animalWheelEntries.map((entry) => entry.image),
+        ...resolvedSelectedTreeStageImages.map((entry) => entry.source),
+      ].filter(isGrowImageSource),
+    [animalWheelEntries, resolvedSelectedTreeStageImages, treeWheelEntries],
+  );
+  const currentGrowScenePreloadSources = useMemo(
+    () =>
+      [
+        resolvedScenePreviewImage,
+        resolvedStagePreviewAsset,
+      ].filter(isGrowImageSource),
+    [
+      resolvedScenePreviewImage,
+      resolvedStagePreviewAsset,
+    ],
+  );
+  const currentGrowDeferredPreloadSources = useMemo(
+    () =>
+      [
+        resolvedSceneBackground,
+        resolvedSceneStillLayer,
+        resolvedSceneBreezeLayer,
+        resolvedStageAsset,
+        resolvedNextFieldPreviewImage,
+        resolvedNextFieldImage,
+      ].filter(isGrowImageSource),
+    [
+      resolvedNextFieldImage,
+      resolvedNextFieldPreviewImage,
+      resolvedSceneBackground,
+      resolvedSceneBreezeLayer,
+      resolvedSceneStillLayer,
+      resolvedStageAsset,
+    ],
+  );
+  const currentRoamingAnimalPreloadSources = useMemo(
+    () =>
+      roamingAnimalEntries
+        .flatMap(({ imageAssets }) => [
+          imageAssets.walkingImage,
+          imageAssets.idleImage,
+        ])
+        .filter(isGrowImageSource),
+    [roamingAnimalEntries],
+  );
+  const forestRoamingAnimalPreloadSources = useMemo(
+    () =>
+      forestRoamingAnimalEntries
+        .flatMap(({ imageAssets }) => [
+          imageAssets.walkingImage,
+          imageAssets.idleImage,
+        ])
+        .filter(isGrowImageSource),
+    [forestRoamingAnimalEntries],
+  );
+  const currentGrowPreloadKey = useMemo(
+    () => currentGrowScenePreloadSources.map(getGrowImageSourceSignature).join('|'),
+    [currentGrowScenePreloadSources],
+  );
+  const currentRoamingAnimalPreloadKey = useMemo(
+    () => currentRoamingAnimalPreloadSources.map(getGrowImageSourceSignature).join('|'),
+    [currentRoamingAnimalPreloadSources],
+  );
+  const forestRoamingAnimalPreloadKey = useMemo(
+    () => forestRoamingAnimalPreloadSources.map(getGrowImageSourceSignature).join('|'),
+    [forestRoamingAnimalPreloadSources],
+  );
+  const currentGrowAssetsReady = currentGrowAssetsReadyKey === currentGrowPreloadKey;
+  const currentRoamingAnimalAssetsReady =
+    currentRoamingAnimalPreloadSources.length === 0 ||
+    currentRoamingAnimalAssetsReadyKey === currentRoamingAnimalPreloadKey;
+  const forestRoamingAnimalAssetsReady =
+    forestRoamingAnimalPreloadSources.length === 0 ||
+    forestRoamingAnimalAssetsReadyKey === forestRoamingAnimalPreloadKey;
+  const deferredGrowPreloadSources = useMemo(
+    () =>
+      getUniqueGrowImageSources([
+        ...currentGrowDeferredPreloadSources,
+        FOREST_FLAT_MAP.image,
+        ...forestDioramaEntries.map((entry) => entry.image),
+        ...mapPreviewWarmupSources,
+        ...collectionPreviewWarmupSources,
+      ]),
+    [
+      collectionPreviewWarmupSources,
+      currentGrowDeferredPreloadSources,
+      forestDioramaEntries,
+      mapPreviewWarmupSources,
+    ],
+  );
+  const forestDioramaCriticalPreloadSources = useMemo(
+    () =>
+      [
+        FOREST_FLAT_MAP.image,
+      ].filter(isGrowImageSource),
+    [],
+  );
+  const forestDioramaDeferredPreloadSources = useMemo(
+    () =>
+      forestDioramaEntries.map((entry) => entry.image).filter(isGrowImageSource),
+    [forestDioramaEntries],
+  );
+  const forestDioramaPreloadKey = useMemo(
+    () => forestDioramaCriticalPreloadSources.map(getGrowImageSourceSignature).join('|'),
+    [forestDioramaCriticalPreloadSources],
+  );
+  const forestDioramaAssetsReady = forestDioramaAssetsReadyKey === forestDioramaPreloadKey;
+  const currentGrowAssetsReadyForRender = shouldTreatSceneAssetsAsReady({
+    sceneAssetsReady: currentGrowAssetsReady,
+    sceneHasRendered: growSceneHasRendered,
+  });
+  const shouldMountForestDioramaContent = shouldKeepOpenedOverlayMounted({
+    hasOpened: forestHasOpened,
+    isVisible: forestVisible,
+  });
+  const shouldMountMapContent = shouldKeepOpenedOverlayMounted({
+    hasOpened: mapHasOpened,
+    isVisible: mapVisible,
+  });
+  const shouldMountCollectionContent = shouldKeepOpenedOverlayMounted({
+    hasOpened: collectionHasOpened,
+    isVisible: activeCollection !== null,
+  });
+  const forestDioramaSceneReady = shouldTreatSceneAssetsAsReady({
+    sceneAssetsReady: forestDioramaAssetsReady,
+    sceneHasRendered: forestDioramaSceneHasRendered,
+  }) || forestVisible;
+  const growSceneContentReady = shouldRenderGrowSceneContent({
+    adminStatusReady,
+    completedTreeCountReady,
+    currentAssetsReady: currentGrowAssetsReadyForRender,
+    growPreferencesReady,
+    treeSnapshotReady,
+  });
+  const roamingAnimalsReady = shouldRenderRoamingAnimals({
+    currentAssetsReady: currentRoamingAnimalAssetsReady,
+    growPreferencesReady,
+  });
+  const forestRoamingAnimalsReady = shouldRenderForestRoamingAnimals({
+    forestAnimalAssetsReady: forestRoamingAnimalAssetsReady,
+    forestSceneReady: forestDioramaSceneReady,
+    forestVisible,
+    growPreferencesReady,
+  });
+  const shouldWarmOverlayAssets = shouldWarmGrowOverlayAssets({
+    growSceneContentReady,
+    growSceneHasRendered,
+  });
+
+  useEffect(() => {
+    let mounted = true;
+    const preloadKey = currentGrowPreloadKey;
+
+    setCurrentGrowAssetsReadyKey(null);
+    preloadGrowScreenAssets()
+      .then(() => preloadGrowImageSources(currentGrowScenePreloadSources, { chunkSize: 3 }))
+      .then(() => {
+        if (mounted) {
+          setCurrentGrowAssetsReadyKey(preloadKey);
+        }
+      })
+      .catch((error) => {
+        console.warn('Could not warm current grow assets.', error);
+
+        if (mounted) {
+          setCurrentGrowAssetsReadyKey(preloadKey);
+        }
+      });
+
+    return () => {
+      mounted = false;
+    };
+  }, [currentGrowPreloadKey, currentGrowScenePreloadSources]);
+
+  useEffect(() => {
+    let mounted = true;
+    const preloadKey = currentRoamingAnimalPreloadKey;
+
+    if (currentRoamingAnimalPreloadSources.length === 0) {
+      setCurrentRoamingAnimalAssetsReadyKey(preloadKey);
+      return undefined;
+    }
+
+    setCurrentRoamingAnimalAssetsReadyKey(null);
+    preloadGrowImageSources(currentRoamingAnimalPreloadSources, { chunkSize: 2 })
+      .then(() => {
+        if (mounted) {
+          setCurrentRoamingAnimalAssetsReadyKey(preloadKey);
+        }
+      })
+      .catch((error) => {
+        console.warn('Could not warm roaming animal assets.', error);
+
+        if (mounted) {
+          setCurrentRoamingAnimalAssetsReadyKey(preloadKey);
+        }
+      });
+
+    return () => {
+      mounted = false;
+    };
+  }, [currentRoamingAnimalPreloadKey, currentRoamingAnimalPreloadSources]);
+
+  useEffect(() => {
+    const preloadKey = forestRoamingAnimalPreloadKey;
+
+    if (forestRoamingAnimalPreloadSources.length === 0) {
+      setForestRoamingAnimalAssetsReadyKey(preloadKey);
+      return undefined;
+    }
+
+    if (!shouldWarmOverlayAssets && !forestHasOpened && !forestVisible) {
+      return undefined;
+    }
+
+    let cancelled = false;
+    setForestRoamingAnimalAssetsReadyKey(null);
+    const timer = setTimeout(() => {
+      if (cancelled) {
+        return;
+      }
+
+      void preloadGrowImageSources(forestRoamingAnimalPreloadSources, { chunkSize: 2 })
+        .then(() => {
+          if (!cancelled) {
+            setForestRoamingAnimalAssetsReadyKey(preloadKey);
+          }
+        })
+        .catch((error) => {
+          console.warn('Could not warm forest animal assets.', error);
+
+          if (!cancelled) {
+            setForestRoamingAnimalAssetsReadyKey(preloadKey);
+          }
+        });
+    }, 180);
+
+    return () => {
+      cancelled = true;
+      clearTimeout(timer);
+    };
+  }, [
+    forestHasOpened,
+    forestRoamingAnimalPreloadKey,
+    forestRoamingAnimalPreloadSources,
+    forestVisible,
+    shouldWarmOverlayAssets,
+  ]);
+
+  useEffect(() => {
+    if (!shouldWarmOverlayAssets) {
+      return undefined;
+    }
+
+    const timer = setTimeout(() => {
+      void preloadGrowImageSources(deferredGrowPreloadSources, {
+        cachePolicy: 'disk',
+        chunkSize: 3,
+      }).catch((error) => {
+        console.warn('Could not warm deferred grow assets.', error);
+      });
+    }, 1200);
+
+    return () => {
+      clearTimeout(timer);
+    };
+  }, [deferredGrowPreloadSources, shouldWarmOverlayAssets]);
+
+  useEffect(() => {
+    if (!forestHasOpened && !forestVisible) {
+      return undefined;
+    }
+
+    let mounted = true;
+    const preloadKey = forestDioramaPreloadKey;
+
+    setForestDioramaAssetsReadyKey(null);
+    preloadGrowImageSources(forestDioramaCriticalPreloadSources, { chunkSize: 1 })
+      .then(() => {
+        if (mounted) {
+          setForestDioramaAssetsReadyKey(preloadKey);
+        }
+      })
+      .catch((error) => {
+        console.warn('Could not warm diorama assets.', error);
+
+        if (mounted) {
+          setForestDioramaAssetsReadyKey(preloadKey);
+        }
+      });
+
+    return () => {
+      mounted = false;
+    };
+  }, [forestDioramaCriticalPreloadSources, forestDioramaPreloadKey, forestHasOpened, forestVisible]);
+
+  useEffect(() => {
+    if ((!forestHasOpened && !forestVisible) || forestDioramaDeferredPreloadSources.length === 0) {
+      return undefined;
+    }
+
+    let cancelled = false;
+    const timer = setTimeout(() => {
+      if (cancelled) {
+        return;
+      }
+
+      void preloadGrowImageSources(forestDioramaDeferredPreloadSources, {
+        cachePolicy: 'memory-disk',
+        chunkSize: 3,
+      }).catch((error) => {
+        console.warn('Could not warm forest tree assets.', error);
+      });
+    }, 60);
+
+    return () => {
+      cancelled = true;
+      clearTimeout(timer);
+    };
+  }, [forestDioramaDeferredPreloadSources, forestHasOpened, forestVisible]);
+  const forestDioramaSceneOpacity = forestDioramaThemeTransition.interpolate({
+    inputRange: [0, 1],
+    outputRange: [0, 1],
+  });
+  const forestDioramaSceneScale = forestDioramaThemeTransition.interpolate({
+    inputRange: [0, 1],
+    outputRange: [0.96, 1],
+  });
+  const forestDioramaSceneTranslateY = forestDioramaThemeTransition.interpolate({
+    inputRange: [0, 1],
+    outputRange: [18, 0],
+  });
+
+  useEffect(() => {
+    if (growSceneContentReady && !growSceneHasRendered) {
+      setGrowSceneHasRendered(true);
+    }
+  }, [growSceneContentReady, growSceneHasRendered]);
+
+  useEffect(() => {
+    if (forestDioramaAssetsReady && !forestDioramaSceneHasRendered) {
+      setForestDioramaSceneHasRendered(true);
+    }
+  }, [forestDioramaAssetsReady, forestDioramaSceneHasRendered]);
+
+  if (!growSceneContentReady) {
+    return (
+      <SafeAreaView edges={[]} style={styles.loadingSafeArea}>
+        <View style={styles.loadingPanel}>
+          <View style={styles.loadingSeedIcon}>
+            <View style={styles.loadingSeedLeaf} />
+            <View style={styles.loadingSeedStem} />
+          </View>
+          <Text style={styles.loadingTitle}>Loading garden</Text>
+          <Text style={styles.loadingCopy}>Preparing the current map and tree.</Text>
+          <View style={styles.loadingTrack}>
+            <View style={[styles.loadingFill, { width: currentGrowAssetsReady ? '86%' : '54%' }]} />
+          </View>
+        </View>
+      </SafeAreaView>
+    );
+  }
 
   return (
     <SafeAreaView edges={[]} style={styles.safeArea}>
       <View style={styles.scene}>
         <AnimatedExpoImage
           source={resolvedSceneBackground}
+          placeholder={resolvedScenePreviewImage}
+          placeholderContentFit="cover"
           contentFit="cover"
+          cachePolicy="memory-disk"
+          priority="high"
+          recyclingKey={`grow-scene-background-${sceneLayers.id}`}
           style={[
             styles.groundBackground,
             {
@@ -1806,6 +3046,9 @@ export function GrowScreen() {
               <AnimatedExpoImage
                 source={resolvedSceneStillLayer}
                 contentFit="cover"
+                cachePolicy="memory-disk"
+                priority="high"
+                recyclingKey={`grow-scene-still-${sceneLayers.id}`}
                 style={[
                   styles.groundBackground,
                   styles.forestTreeLayer,
@@ -1819,6 +3062,9 @@ export function GrowScreen() {
               <AnimatedExpoImage
                 source={resolvedSceneBreezeLayer}
                 contentFit="cover"
+                cachePolicy="memory-disk"
+                priority="high"
+                recyclingKey={`grow-scene-breeze-${sceneLayers.id}`}
                 style={[
                   styles.groundBackground,
                   styles.forestLeafLayer,
@@ -1880,7 +3126,12 @@ export function GrowScreen() {
         {showNextScene ? (
           <AnimatedExpoImage
             source={resolvedNextFieldImage}
+            placeholder={resolvedNextFieldPreviewImage}
+            placeholderContentFit="cover"
             contentFit="cover"
+            cachePolicy="memory-disk"
+            priority="high"
+            recyclingKey="grow-next-scene-wilderness"
             style={[
               styles.groundBackground,
               {
@@ -1889,13 +3140,12 @@ export function GrowScreen() {
             ]}
           />
         ) : null}
-        {treeSnapshotReady ? (
-          <View
-            pointerEvents="none"
-            accessible={false}
-            accessibilityElementsHidden
-            importantForAccessibility="no-hide-descendants"
-            style={[styles.currentTreeWrap, { bottom: treeBottomOffset }]}>
+        <View
+          pointerEvents="none"
+          accessible={false}
+          accessibilityElementsHidden
+          importantForAccessibility="no-hide-descendants"
+          style={[styles.currentTreeWrap, { bottom: treeBottomOffset }]}>
             <View style={[styles.currentTreeLayerStack, { width: treeArtSize, height: treeArtSize }]}>
             <View
               style={[
@@ -1907,7 +3157,12 @@ export function GrowScreen() {
               ]}>
               <ExpoImage
                 source={resolvedStageAsset}
+                placeholder={resolvedStagePreviewAsset}
+                placeholderContentFit="contain"
                 contentFit="contain"
+                cachePolicy="memory-disk"
+                priority="high"
+                recyclingKey={`current-tree-base-${speciesId}-${stage}`}
                 style={[
                   styles.currentTreeImage,
                   {
@@ -1936,7 +3191,12 @@ export function GrowScreen() {
               ]}>
               <ExpoImage
                 source={resolvedStageAsset}
+                placeholder={resolvedStagePreviewAsset}
+                placeholderContentFit="contain"
                 contentFit="contain"
+                cachePolicy="memory-disk"
+                priority="high"
+                recyclingKey={`current-tree-left-${speciesId}-${stage}`}
                 style={[styles.currentTreeImage, { width: treeArtSize, height: treeArtSize }]}
                 accessible={false}
               />
@@ -1959,7 +3219,12 @@ export function GrowScreen() {
               ]}>
               <ExpoImage
                 source={resolvedStageAsset}
+                placeholder={resolvedStagePreviewAsset}
+                placeholderContentFit="contain"
                 contentFit="contain"
+                cachePolicy="memory-disk"
+                priority="high"
+                recyclingKey={`current-tree-center-${speciesId}-${stage}`}
                 style={[
                   styles.currentTreeImage,
                   {
@@ -1989,7 +3254,12 @@ export function GrowScreen() {
               ]}>
               <ExpoImage
                 source={resolvedStageAsset}
+                placeholder={resolvedStagePreviewAsset}
+                placeholderContentFit="contain"
                 contentFit="contain"
+                cachePolicy="memory-disk"
+                priority="high"
+                recyclingKey={`current-tree-right-${speciesId}-${stage}`}
                 style={[
                   styles.currentTreeImage,
                   {
@@ -2002,21 +3272,23 @@ export function GrowScreen() {
               />
             </Animated.View>
             </View>
-          </View>
-        ) : null}
+        </View>
 
-        {roamingAnimalEntries.map(({ companion, imageAssets }, index) => (
-          <RoamingAnimal
-            key={companion.id}
-            bottom={roamingAnimalBottom + index * 28}
-            companion={companion}
-            imageAssets={imageAssets}
-            index={index}
-            reduceMotion={shouldReduceMotion}
-            sceneWidth={width}
-            size={roamingAnimalSize}
-          />
-        ))}
+        {roamingAnimalsReady
+          ? roamingAnimalEntries.map(({ companion, imageAssets, previewImage }, index) => (
+              <RoamingAnimal
+                key={companion.id}
+                bottom={roamingAnimalBottom + getRoamingAnimalLayerOffsetY({ index, size: roamingAnimalSize })}
+                companion={companion}
+                imageAssets={imageAssets}
+                index={index}
+                previewImage={previewImage}
+                reduceMotion={shouldReduceMotion}
+                sceneWidth={width}
+                size={roamingAnimalSize}
+              />
+            ))
+          : null}
 
         <Animated.View style={[styles.growthSheet, { transform: [{ translateY: sheetTranslateY }] }]}>
           <AnimatedPressable
@@ -2128,100 +3400,152 @@ export function GrowScreen() {
                 <Text style={styles.verseReference}>{growthVerse.reference}</Text>
               </View>
               <View style={styles.sheetActionGrid}>
-                <SheetActionButton kind="forest" title="Forest" onPress={() => setForestVisible(true)} />
-                <SheetActionButton kind="map" title="Map" onPress={() => setMapVisible(true)} />
+                <SheetActionButton kind="forest" title="Forest" onPress={openForestDiorama} />
+                <SheetActionButton kind="map" title="Map" onPress={openMapPicker} />
                 <SheetActionButton kind="collection" title="Collection" onPress={openCollectionBook} />
               </View>
             </View>
           </View>
         </Animated.View>
+        <HiddenGrowImageWarmers
+          enabled={mapHasOpened}
+          idPrefix="map-picker-warm"
+          sources={mapPreviewWarmupSources}
+        />
+        <HiddenGrowImageWarmers
+          enabled={collectionHasOpened}
+          idPrefix="collection-book-warm"
+          sources={collectionPreviewWarmupSources}
+        />
         <Modal
           visible={forestVisible}
           animationType="slide"
           presentationStyle="pageSheet"
           onRequestClose={() => setForestVisible(false)}>
-          <SafeAreaView edges={['top', 'bottom']} style={styles.overlayScreen} accessibilityViewIsModal>
-            <OverlayHeader title="Faith Forest" onClose={() => setForestVisible(false)} />
-            <ScrollView
-              showsVerticalScrollIndicator={false}
-              contentContainerStyle={styles.forestDioramaContent}>
-              <Text style={styles.forestDioramaEyebrow}>Fruit-bearing trees</Text>
-              <Text style={styles.forestDioramaTitle}>Your Faith Forest</Text>
-              <Text style={styles.forestDioramaCopy}>
-                Each finished tree gets planted here as a small living memory of prayers shared and carried.
-              </Text>
-              <View style={styles.forestDioramaStage}>
-                <View style={styles.forestDioramaPlatformShadow} />
-                <View style={styles.forestDioramaPlatform}>
-                  <View style={styles.forestDioramaPlatformTop} />
-                  <View style={styles.forestDioramaSoftRowOne} />
-                  <View style={styles.forestDioramaSoftRowTwo} />
-                  {FOREST_DIORAMA_SLOTS.map((slot, index) => {
-                    const entry = forestDioramaEntries[index];
-
-                    return (
-                      <View
-                        key={`forest-slot-${index}`}
-                        pointerEvents="none"
+          {shouldMountForestDioramaContent ? (
+          <SafeAreaView
+            edges={['top', 'bottom']}
+            style={[
+              styles.forestDioramaScreen,
+              { backgroundColor: selectedDioramaTheme.backgroundColor },
+            ]}
+            accessibilityViewIsModal>
+            <View style={styles.forestDioramaControls}>
+              <Pressable
+                style={({ pressed }) => [
+                  styles.forestDioramaIconButton,
+                  pressed && styles.forestDioramaIconButtonPressed,
+                ]}
+                onPress={() => setForestVisible(false)}
+                accessibilityRole="button"
+                accessibilityLabel="Close faith forest">
+                <UtilityIcon type="close" size={24} color="#2a1c13" />
+              </Pressable>
+            </View>
+            {forestDioramaSceneReady ? (
+              <View style={styles.forestDioramaContent}>
+                <Animated.View
+                  style={[
+                    styles.forestDioramaStageMotion,
+                    {
+                      opacity: forestDioramaSceneOpacity,
+                      transform: [
+                        { translateY: forestDioramaSceneTranslateY },
+                        { scale: forestDioramaSceneScale },
+                      ],
+                    },
+                ]}>
+                  <View style={[styles.forestDioramaStage, { minHeight: height }]}>
+                    <View
+                      style={styles.forestDioramaPlatform}
+                      {...forestDioramaPanResponder.panHandlers}>
+                      <Animated.View
                         style={[
-                          styles.forestDioramaSlot,
+                          styles.forestDioramaPanLayer,
                           {
-                            left: slot.left,
-                            top: slot.top,
-                            zIndex: index + 1,
-                            transform: [{ translateX: -41 }, { scale: slot.scale }],
+                            transform: [
+                              { translateX: forestDioramaPan.x },
+                              { translateY: forestDioramaPan.y },
+                              { scale: forestDioramaZoom },
+                            ],
                           },
-                        ]}>
-                        <View style={styles.forestDioramaPlantShadow} />
-                        {entry ? (
-                          <ExpoImage
-                            accessibilityIgnoresInvertColors
-                            source={entry.image}
-                            contentFit="contain"
-                            style={styles.forestDioramaTree}
-                          />
-                        ) : (
-                          <View style={styles.forestDioramaEmptyPlant} />
-                        )}
-                      </View>
-                    );
-                  })}
+                        ]}
+                        onLayout={(event) => {
+                          setForestDioramaBoardWidth(event.nativeEvent.layout.width);
+                          setForestDioramaBoardHeight(event.nativeEvent.layout.height);
+                        }}>
+                        <ForestDioramaBoard source={selectedDioramaTheme.image} />
+                        {FOREST_DIORAMA_SLOTS.map((slot, index) => {
+                          const entry = forestDioramaEntries[index];
+
+                          if (!entry) {
+                            return null;
+                          }
+
+                          const slotMetrics = getForestDioramaScaledSlotMetrics({
+                            renderedBoardHeight: forestDioramaBoardHeight,
+                            renderedBoardWidth: forestDioramaBoardWidth,
+                            slot,
+                          });
+
+                          return (
+                            <ForestDioramaTreeSlot
+                              key={`forest-slot-${index}`}
+                              breeze={forestDioramaDrift}
+                              entry={entry}
+                              index={index}
+                              slotMetrics={slotMetrics}
+                            />
+                          );
+                        })}
+                        {forestRoamingAnimalsReady
+                          ? forestRoamingAnimalEntries.map(({ companion, imageAssets, previewImage }, index) => (
+                              <RoamingAnimal
+                                key={`forest-${companion.id}`}
+                                area="forest"
+                                companion={companion}
+                                imageAssets={imageAssets}
+                                index={index}
+                                layerZIndex={getForestDioramaAnimalLayerZIndex({ index })}
+                                maxVisualWidth={forestRoamingAnimalMaxVisualWidth}
+                                previewImage={previewImage}
+                                reduceMotion={shouldReduceMotion}
+                                sceneHeight={forestDioramaBoardHeight}
+                                sceneWidth={forestDioramaBoardWidth}
+                                size={forestRoamingAnimalSize}
+                                top={0}
+                              />
+                            ))
+                          : null}
+                      </Animated.View>
+                    </View>
+                  </View>
+                </Animated.View>
+              </View>
+            ) : (
+              <View style={styles.forestDioramaLoading}>
+                <View style={styles.loadingPanel}>
+                  <View style={styles.loadingSeedIcon}>
+                    <View style={styles.loadingSeedLeaf} />
+                    <View style={styles.loadingSeedStem} />
+                  </View>
+                  <Text style={styles.loadingTitle}>Loading forest</Text>
+                  <Text style={styles.loadingCopy}>Preparing this diorama.</Text>
+                  <View style={styles.loadingTrack}>
+                    <View style={[styles.loadingFill, { width: '62%' }]} />
+                  </View>
                 </View>
               </View>
-              {forestDioramaEntries.length > 0 ? (
-                <View style={styles.forestDioramaList}>
-                  {forestDioramaEntries.map((entry) => (
-                    <View key={`forest-summary-${entry.id}`} style={styles.forestDioramaChip}>
-                      <View style={styles.forestDioramaChipImageWrap}>
-                        <ExpoImage
-                          accessibilityIgnoresInvertColors
-                          source={entry.image}
-                          contentFit="contain"
-                          style={styles.forestDioramaChipImage}
-                        />
-                      </View>
-                      <Text numberOfLines={1} style={styles.forestDioramaChipText}>
-                        {entry.title}
-                      </Text>
-                    </View>
-                  ))}
-                </View>
-              ) : (
-                <View style={styles.forestDioramaEmptyCard}>
-                  <Text style={styles.forestDioramaEmptyTitle}>No fruiting trees yet</Text>
-                  <Text style={styles.forestDioramaEmptyCopy}>
-                    Share and carry prayers to grow your first tree into this forest.
-                  </Text>
-                </View>
-              )}
-            </ScrollView>
+            )}
           </SafeAreaView>
+          ) : null}
         </Modal>
         <Modal
           visible={mapVisible}
           animationType="slide"
           presentationStyle="pageSheet"
           onRequestClose={() => setMapVisible(false)}>
+          {shouldMountMapContent ? (
           <SafeAreaView edges={['top', 'bottom']} style={styles.overlayScreen} accessibilityViewIsModal>
             <OverlayHeader title="Seed Map" onClose={() => setMapVisible(false)} />
             <ScrollView
@@ -2296,6 +3620,7 @@ export function GrowScreen() {
                           accessibilityIgnoresInvertColors
                           source={area.image}
                           contentFit="cover"
+                          cachePolicy="memory-disk"
                           style={[styles.mapReferenceImage, !isUnlocked && styles.mapReferenceImageLocked]}
                         />
                         {!isUnlocked ? (
@@ -2350,12 +3675,14 @@ export function GrowScreen() {
               })}
             </ScrollView>
           </SafeAreaView>
+          ) : null}
         </Modal>
         <Modal
           visible={activeCollection !== null}
           animationType="slide"
           presentationStyle="fullScreen"
           onRequestClose={closeCollection}>
+          {shouldMountCollectionContent ? (
           <SafeAreaView
             edges={['top', 'bottom']}
             style={styles.collectionScreen}
@@ -2439,6 +3766,7 @@ export function GrowScreen() {
                     accessibilityIgnoresInvertColors
                     source={selectedTreeDetailImage}
                     contentFit="contain"
+                    cachePolicy="memory-disk"
                     style={styles.treeDetailHeroImage}
                   />
                 </View>
@@ -2489,6 +3817,7 @@ export function GrowScreen() {
                           accessibilityIgnoresInvertColors
                           source={stageEntry.source}
                           contentFit="contain"
+                          cachePolicy="memory-disk"
                           style={styles.treeDetailStageImage}
                         />
                         <Text numberOfLines={1} style={styles.treeDetailStageSpecies}>
@@ -2530,19 +3859,11 @@ export function GrowScreen() {
                     isOnlySelectedAnimal ||
                     (!isSelectedAnimal && isAnimalSelectionAtCapacity);
                   const animalSelectLabel = isSelectedAnimal
-                    ? isOnlySelectedAnimal
-                      ? 'Active'
-                      : 'Selected'
+                    ? 'Selected'
                     : isAnimalSelectionAtCapacity
                       ? 'Max 2'
                       : 'Select';
-                  const footerLabel = isUnlockedTree
-                    ? stageLabel
-                    : isUnlockedAnimal
-                      ? isSelectedAnimal
-                        ? 'Roaming'
-                        : 'Unlocked'
-                      : 'Locked';
+                  const footerLabel = isUnlockedTree ? stageLabel : 'Locked';
 
                   return (
                     <Pressable
@@ -2585,6 +3906,7 @@ export function GrowScreen() {
                             source={treeEntry?.image ?? resolvedStageAsset}
                             tintColor={isUnlockedTree ? undefined : '#1F1711'}
                             contentFit="contain"
+                            cachePolicy="memory-disk"
                             style={[
                               styles.collectionDexImage,
                               !isUnlockedTree && styles.collectionDexLockedTreeImage,
@@ -2595,6 +3917,7 @@ export function GrowScreen() {
                             accessibilityIgnoresInvertColors
                             source={animalEntry.image}
                             contentFit="contain"
+                            cachePolicy="memory-disk"
                             style={[styles.collectionDexImage, styles.collectionDexAnimalImage]}
                           />
                         ) : (
@@ -2610,11 +3933,13 @@ export function GrowScreen() {
                           </View>
                         )}
                       </View>
-                      <View style={styles.collectionDexFooter}>
-                        <Text style={styles.collectionDexFooterText}>
-                          {footerLabel}
-                        </Text>
-                        {isUnlockedAnimal && animalEntry ? (
+                      <View
+                        style={[
+                          styles.collectionDexFooter,
+                          displayedCollectionKind === 'animal' && styles.collectionDexFooterAnimal,
+                        ]}>
+                        {displayedCollectionKind === 'animal' ? (
+                          isUnlockedAnimal && animalEntry ? (
                           <Pressable
                             disabled={isAnimalSelectDisabled}
                             onPress={() => toggleRoamingAnimalSelection(animalEntry.id)}
@@ -2644,7 +3969,16 @@ export function GrowScreen() {
                               {animalSelectLabel}
                             </Text>
                           </Pressable>
-                        ) : null}
+                          ) : (
+                            <Text style={styles.collectionDexFooterText}>
+                              {footerLabel}
+                            </Text>
+                          )
+                        ) : (
+                          <Text style={styles.collectionDexFooterText}>
+                            {footerLabel}
+                          </Text>
+                        )}
                       </View>
                     </Pressable>
                   );
@@ -2652,6 +3986,7 @@ export function GrowScreen() {
               </ScrollView>
             )}
           </SafeAreaView>
+          ) : null}
         </Modal>
       </View>
     </SafeAreaView>
@@ -2732,15 +4067,28 @@ const styles = StyleSheet.create({
     borderRadius: 6,
     backgroundColor: '#FF6628',
   },
+  hiddenGrowImageWarmers: {
+    position: 'absolute',
+    left: -10000,
+    top: -10000,
+    width: 1,
+    height: 1,
+    opacity: 0,
+    overflow: 'hidden',
+  },
+  hiddenGrowImageWarmer: {
+    width: 1,
+    height: 1,
+  },
   safeArea: {
     flex: 1,
-    backgroundColor: '#3F963F',
+    backgroundColor: '#BBD4B8',
     width: '100%',
   },
   scene: {
     flex: 1,
     overflow: 'hidden',
-    backgroundColor: '#3F963F',
+    backgroundColor: '#BBD4B8',
     width: '100%',
   },
   groundBackground: {
@@ -3561,11 +4909,66 @@ const styles = StyleSheet.create({
   mapWheelSubtitleSelected: {
     color: 'rgba(255, 255, 255, 0.86)',
   },
-  forestDioramaContent: {
-    paddingHorizontal: 18,
-    paddingTop: 12,
-    paddingBottom: 34,
+  forestDioramaScreen: {
+    flex: 1,
+    overflow: 'hidden',
+  },
+  forestDioramaBackgroundImage: {
+    ...StyleSheet.absoluteFillObject,
+    width: '100%',
+    height: '100%',
+  },
+  forestDioramaBackgroundLayer: {
+    ...StyleSheet.absoluteFillObject,
+    width: '100%',
+    height: '100%',
+  },
+  forestDioramaBottomShade: {
+    position: 'absolute',
+    left: 0,
+    right: 0,
+    bottom: 0,
+    height: '46%',
+    backgroundColor: 'rgba(0, 0, 0, 0.14)',
+  },
+  forestDioramaControls: {
+    position: 'absolute',
+    top: 16,
+    right: 16,
+    zIndex: 30,
+    flexDirection: 'row',
+    gap: 10,
+  },
+  forestDioramaIconButton: {
+    width: 48,
+    height: 48,
+    borderRadius: 18,
     alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: 'rgba(255, 253, 248, 0.9)',
+    borderWidth: 1,
+    borderColor: 'rgba(42, 28, 19, 0.12)',
+    ...stageProgressCardShadow,
+  },
+  forestDioramaIconButtonPressed: {
+    transform: [{ scale: 0.96 }],
+    opacity: 0.82,
+  },
+  forestDioramaContent: {
+    flex: 1,
+    zIndex: 1,
+    paddingHorizontal: 0,
+    paddingTop: 0,
+    paddingBottom: 0,
+    alignItems: 'stretch',
+    justifyContent: 'flex-start',
+  },
+  forestDioramaLoading: {
+    flex: 1,
+    zIndex: 1,
+    paddingHorizontal: 26,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   forestDioramaEyebrow: {
     color: '#C7430E',
@@ -3593,86 +4996,194 @@ const styles = StyleSheet.create({
   },
   forestDioramaStage: {
     width: '100%',
-    maxWidth: 372,
-    height: 370,
-    marginTop: 18,
-    alignItems: 'center',
-    justifyContent: 'center',
+    flex: 1,
+    alignItems: 'stretch',
+    justifyContent: 'flex-start',
   },
-  forestDioramaPlatformShadow: {
-    position: 'absolute',
-    bottom: 34,
-    width: '86%',
-    height: 54,
-    borderRadius: 44,
-    backgroundColor: 'rgba(42, 28, 19, 0.18)',
-    transform: [{ scaleX: 1.02 }],
+  forestDioramaStageMotion: {
+    flex: 1,
+    width: '100%',
+    alignItems: 'stretch',
+    justifyContent: 'flex-start',
   },
   forestDioramaPlatform: {
     position: 'relative',
-    width: '92%',
-    height: 300,
-    borderRadius: 36,
+    width: '100%',
+    flex: 1,
+    minHeight: '100%',
     overflow: 'hidden',
-    backgroundColor: '#D8E8C9',
-    borderWidth: 1,
-    borderColor: 'rgba(42, 28, 19, 0.08)',
-    shadowColor: '#2a1c13',
-    shadowOpacity: 0.12,
-    shadowRadius: 18,
-    shadowOffset: { width: 0, height: 10 },
-    elevation: 4,
+    backgroundColor: 'transparent',
   },
-  forestDioramaPlatformTop: {
-    ...StyleSheet.absoluteFillObject,
-    borderRadius: 36,
-    backgroundColor: 'rgba(226, 241, 210, 0.62)',
-  },
-  forestDioramaSoftRowOne: {
+  forestDioramaPanLayer: {
     position: 'absolute',
     left: -34,
     right: -34,
-    top: 84,
-    height: 54,
-    borderRadius: 52,
-    backgroundColor: 'rgba(255, 255, 255, 0.13)',
-    transform: [{ rotate: '-9deg' }],
+    top: -72,
+    bottom: -72,
   },
-  forestDioramaSoftRowTwo: {
+  forestDioramaBoardImage: {
     position: 'absolute',
-    left: -44,
-    right: -24,
-    bottom: 54,
-    height: 62,
-    borderRadius: 56,
-    backgroundColor: 'rgba(105, 84, 58, 0.06)',
-    transform: [{ rotate: '8deg' }],
+    left: 0,
+    top: 0,
+    width: '100%',
+    height: '100%',
+  },
+  forestDioramaThemeDeck: {
+    paddingTop: 12,
+    paddingBottom: 18,
+  },
+  forestDioramaThemeSlide: {
+    minHeight: 336,
+  },
+  forestDioramaThemeCard: {
+    minHeight: 322,
+    borderRadius: 22,
+    padding: 10,
+    backgroundColor: '#FFFDF8',
+    borderWidth: 1,
+    borderColor: 'rgba(42, 28, 19, 0.1)',
+    ...stageProgressCardShadow,
+  },
+  forestDioramaThemeCardCurrent: {
+    backgroundColor: '#FFF8EA',
+    borderColor: 'rgba(198, 95, 42, 0.38)',
+  },
+  forestDioramaThemeCardLocked: {
+    backgroundColor: '#F3EBDD',
+    borderColor: 'rgba(42, 28, 19, 0.08)',
+  },
+  forestDioramaThemeArt: {
+    height: 150,
+    borderRadius: 16,
+    overflow: 'hidden',
+    backgroundColor: '#FFF3D6',
+  },
+  forestDioramaThemeImage: {
+    width: '100%',
+    height: '100%',
+  },
+  forestDioramaThemeImageLocked: {
+    opacity: 0.28,
+    tintColor: '#1F1711',
+  },
+  forestDioramaThemeLockedShade: {
+    ...StyleSheet.absoluteFillObject,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: 'rgba(42, 28, 19, 0.18)',
+  },
+  forestDioramaThemeLockedText: {
+    overflow: 'hidden',
+    borderRadius: 999,
+    paddingHorizontal: 13,
+    paddingVertical: 7,
+    color: '#FFFDF8',
+    fontSize: 11,
+    lineHeight: 13,
+    fontWeight: '900',
+    backgroundColor: 'rgba(42, 28, 19, 0.62)',
+    textTransform: 'uppercase',
+  },
+  forestDioramaThemeBody: {
+    paddingHorizontal: 8,
+    paddingTop: 16,
+    paddingBottom: 8,
+  },
+  forestDioramaThemeKicker: {
+    color: '#C65F2A',
+    fontSize: 10,
+    lineHeight: 12,
+    fontWeight: '900',
+    textTransform: 'uppercase',
+  },
+  forestDioramaThemeKickerCurrent: {
+    color: '#5F7F4D',
+  },
+  forestDioramaThemeKickerLocked: {
+    color: '#8B7B68',
+  },
+  forestDioramaThemeTitle: {
+    marginTop: 6,
+    color: '#2a1c13',
+    fontSize: 25,
+    lineHeight: 30,
+    fontWeight: '900',
+  },
+  forestDioramaThemeTitleLocked: {
+    color: '#5D503F',
+  },
+  forestDioramaThemeCopy: {
+    marginTop: 7,
+    minHeight: 36,
+    color: '#513c25',
+    fontSize: 13,
+    lineHeight: 18,
+    fontWeight: '800',
+  },
+  forestDioramaThemeSelectButton: {
+    minHeight: 46,
+    marginTop: 16,
+    borderRadius: 14,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: '#C65F2A',
+    borderWidth: 1,
+    borderColor: '#C65F2A',
+  },
+  forestDioramaThemeSelectButtonCurrent: {
+    backgroundColor: '#5F7F4D',
+    borderColor: '#5F7F4D',
+  },
+  forestDioramaThemeSelectButtonDisabled: {
+    backgroundColor: 'rgba(245, 237, 224, 0.84)',
+    borderColor: 'rgba(42, 28, 19, 0.07)',
+  },
+  forestDioramaThemeSelectButtonPressed: {
+    transform: [{ scale: 0.985 }],
+  },
+  forestDioramaThemeSelectText: {
+    color: '#FFFFFF',
+    fontSize: 13,
+    lineHeight: 16,
+    fontWeight: '900',
+  },
+  forestDioramaThemeSelectTextDisabled: {
+    color: '#8B7B68',
   },
   forestDioramaSlot: {
     position: 'absolute',
     width: 82,
-    height: 104,
+    height: 116,
     alignItems: 'center',
     justifyContent: 'flex-end',
   },
   forestDioramaPlantShadow: {
     position: 'absolute',
-    bottom: 3,
-    width: 52,
-    height: 13,
+    bottom: 8,
+    width: 48,
+    height: 12,
     borderRadius: 999,
-    backgroundColor: 'rgba(42, 28, 19, 0.16)',
+    backgroundColor: 'rgba(42, 28, 19, 0.15)',
   },
   forestDioramaTree: {
-    width: 92,
-    height: 104,
+    width: 98,
+    height: 116,
+    transformOrigin: '50% 100%',
+  },
+  forestDioramaTreePressable: {
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  forestDioramaTreeImage: {
+    width: '100%',
+    height: '100%',
   },
   forestDioramaEmptyPlant: {
-    width: 21,
-    height: 9,
-    marginBottom: 7,
+    width: 24,
+    height: 10,
+    marginBottom: 11,
     borderRadius: 999,
-    backgroundColor: 'rgba(105, 84, 58, 0.16)',
+    backgroundColor: 'rgba(77, 111, 76, 0.12)',
   },
   forestDioramaList: {
     width: '100%',
@@ -3956,6 +5467,9 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
     gap: 5,
   },
+  collectionDexFooterAnimal: {
+    justifyContent: 'center',
+  },
   collectionDexFooterText: {
     flexShrink: 1,
     color: '#C65F2A',
@@ -3964,10 +5478,10 @@ const styles = StyleSheet.create({
     fontWeight: '900',
   },
   collectionDexSelectButton: {
-    minWidth: 48,
+    minWidth: 76,
     minHeight: 26,
     borderRadius: 10,
-    paddingHorizontal: 7,
+    paddingHorizontal: 12,
     alignItems: 'center',
     justifyContent: 'center',
     backgroundColor: '#C65F2A',

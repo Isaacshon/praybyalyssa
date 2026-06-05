@@ -1,11 +1,22 @@
 import { describe, expect, it } from 'vitest';
 
 import {
+  FOREST_DIORAMA_BOARD_HEIGHT,
+  FOREST_DIORAMA_BOARD_WIDTH,
+  FOREST_DIORAMA_SLOTS,
+  getForestDioramaSlotAnchor,
+} from './diorama-layout';
+import {
   ROAMING_ANIMAL_FACING_FRAME,
+  getRoamingAnimalActiveMotionDurationMs,
   getRoamingAnimalInitialDelayMs,
   getRoamingAnimalInitialStep,
   getRoamingAnimalIdleDelayMs,
+  getRoamingAnimalLayerOffsetY,
   getRoamingAnimalMove,
+  getRoamingAnimalMovementProgress,
+  getRoamingAnimalMotionChunkDurationMs,
+  getRoamingAnimalMotionProfile,
   getRoamingAnimalMotionState,
   getRoamingAnimalNextRestWalkCount,
   getRoamingAnimalPoint,
@@ -14,6 +25,77 @@ import {
   getRoamingAnimalWalkSpeedPxPerSecond,
   shouldRoamingAnimalRest,
 } from './animal-roaming';
+
+const EXPECTED_ROAMING_MOTION_PROFILES = {
+  baby_rabbit: {
+    loopDurationMs: 10030,
+    movingWindows: [{ startMs: 530, endMs: 10030 }],
+    activeDurationMs: 9500,
+    movingSamples: [530, 800, 2500, 6500, 10020],
+    stoppedSamples: [0, 270, 529],
+  },
+  dog: {
+    loopDurationMs: 10030,
+    movingWindows: [{ startMs: 1070, endMs: 9730 }],
+    activeDurationMs: 8660,
+    movingSamples: [1070, 1200, 1430, 2500, 6500, 9729],
+    stoppedSamples: [0, 500, 1069, 9730, 9800, 9900, 10000],
+  },
+  desert_fox: {
+    loopDurationMs: 10000,
+    movingWindows: [{ startMs: 600, endMs: 7930 }],
+    activeDurationMs: 7330,
+    movingSamples: [600, 900, 1500, 2500, 3900, 4500, 5400, 6500, 7799],
+    stoppedSamples: [0, 300, 599, 7930, 8000, 8400, 9000, 9900],
+  },
+  rock_hyrax: {
+    loopDurationMs: 6030,
+    movingWindows: [{ startMs: 800, endMs: 5600 }],
+    activeDurationMs: 4800,
+    movingSamples: [800, 900, 1600, 5400, 5599],
+    stoppedSamples: [0, 500, 799, 5600, 5630, 5800, 6000],
+  },
+  lion: {
+    loopDurationMs: 6030,
+    movingWindows: [{ startMs: 0, endMs: 6030 }],
+    activeDurationMs: 6030,
+    movingSamples: [0, 1600, 5400, 6029],
+    stoppedSamples: [],
+  },
+  sheep: {
+    loopDurationMs: 6030,
+    movingWindows: [{ startMs: 0, endMs: 6030 }],
+    activeDurationMs: 6030,
+    movingSamples: [0, 1600, 5400, 6029],
+    stoppedSamples: [],
+  },
+} as const;
+
+function mapRenderedForestPointToBoardSpace({
+  renderedBoardHeight,
+  renderedBoardWidth,
+  x,
+  y,
+}: {
+  renderedBoardHeight: number;
+  renderedBoardWidth: number;
+  x: number;
+  y: number;
+}) {
+  const boardScale = Math.max(
+    renderedBoardWidth / FOREST_DIORAMA_BOARD_WIDTH,
+    renderedBoardHeight / FOREST_DIORAMA_BOARD_HEIGHT,
+  );
+  const drawnBoardWidth = FOREST_DIORAMA_BOARD_WIDTH * boardScale;
+  const drawnBoardHeight = FOREST_DIORAMA_BOARD_HEIGHT * boardScale;
+  const coverOffsetX = (renderedBoardWidth - drawnBoardWidth) / 2;
+  const coverOffsetY = (renderedBoardHeight - drawnBoardHeight) / 2;
+
+  return {
+    x: (x - coverOffsetX) / boardScale,
+    y: (y - coverOffsetY) / boardScale,
+  };
+}
 
 describe('animal roaming layout', () => {
   it('keeps roaming points inside the grow map scene bounds', () => {
@@ -39,6 +121,142 @@ describe('animal roaming layout', () => {
         expect(point.y).toBeGreaterThanOrEqual(24);
         expect(point.y).toBeLessThanOrEqual(132);
       }
+    }
+  });
+
+  it('lets forest animals roam across the full forest map area', () => {
+    const sceneWidth = 461;
+    const sceneHeight = 996;
+    const size = 34;
+    const points = [0, 1, 2, 3, 4, 5].flatMap((index) =>
+      Array.from({ length: 24 }, (_, step) =>
+        getRoamingAnimalPoint({
+          area: 'forest',
+          companionId: ['baby_rabbit', 'desert_fox', 'rock_hyrax', 'lion', 'sheep', 'dog'][index],
+          index,
+          sceneHeight,
+          sceneWidth,
+          size,
+          step,
+        }),
+      ),
+    );
+
+    expect(Math.min(...points.map((point) => point.x))).toBeLessThan(sceneWidth * 0.24);
+    expect(Math.max(...points.map((point) => point.x))).toBeGreaterThan(sceneWidth * 0.76);
+    expect(Math.min(...points.map((point) => point.y))).toBeLessThan(sceneHeight * 0.24);
+    expect(Math.max(...points.map((point) => point.y))).toBeGreaterThan(sceneHeight * 0.76);
+
+    for (const point of points) {
+      expect(point.x).toBeGreaterThanOrEqual(10);
+      expect(point.x + size).toBeLessThanOrEqual(sceneWidth - 10);
+      expect(point.y).toBeGreaterThanOrEqual(58);
+      expect(point.y + size).toBeLessThanOrEqual(sceneHeight - 58);
+    }
+  });
+
+  it('keeps forest animal foot positions out of tree planting roots', () => {
+    const sceneWidth = 461;
+    const sceneHeight = 996;
+    const size = 34;
+    const minimumTreeRootDistance = 52;
+    const treeRoots = FOREST_DIORAMA_SLOTS.map(getForestDioramaSlotAnchor);
+
+    for (let index = 0; index < 6; index += 1) {
+      for (let step = 0; step < 36; step += 1) {
+        const point = getRoamingAnimalPoint({
+          area: 'forest',
+          companionId: ['baby_rabbit', 'desert_fox', 'rock_hyrax', 'lion', 'sheep', 'dog'][index],
+          index,
+          sceneHeight,
+          sceneWidth,
+          size,
+          step,
+        });
+        const footPoint = mapRenderedForestPointToBoardSpace({
+          renderedBoardHeight: sceneHeight,
+          renderedBoardWidth: sceneWidth,
+          x: point.x + size / 2,
+          y: point.y + size * 0.7,
+        });
+        const nearestTreeDistance = Math.min(
+          ...treeRoots.map((root) => Math.hypot(footPoint.x - root.x, footPoint.y - root.y)),
+        );
+
+        expect(nearestTreeDistance).toBeGreaterThanOrEqual(minimumTreeRootDistance);
+      }
+    }
+  });
+
+  it('keeps forest animal walking paths out of tree planting roots between route points', () => {
+    const sceneWidth = 461;
+    const sceneHeight = 996;
+    const size = 34;
+    const minimumTreeRootDistance = 52;
+    const treeRoots = FOREST_DIORAMA_SLOTS.map(getForestDioramaSlotAnchor);
+
+    for (let index = 0; index < 6; index += 1) {
+      for (let step = 0; step < 36; step += 1) {
+        const from = getRoamingAnimalPoint({
+          area: 'forest',
+          companionId: ['baby_rabbit', 'desert_fox', 'rock_hyrax', 'lion', 'sheep', 'dog'][index],
+          index,
+          sceneHeight,
+          sceneWidth,
+          size,
+          step,
+        });
+        const to = getRoamingAnimalPoint({
+          area: 'forest',
+          companionId: ['baby_rabbit', 'desert_fox', 'rock_hyrax', 'lion', 'sheep', 'dog'][index],
+          index,
+          sceneHeight,
+          sceneWidth,
+          size,
+          step: step + 1,
+        });
+
+        for (let sample = 0; sample <= 8; sample += 1) {
+          const progress = sample / 8;
+          const point = {
+            x: from.x + (to.x - from.x) * progress,
+            y: from.y + (to.y - from.y) * progress,
+          };
+          const footPoint = mapRenderedForestPointToBoardSpace({
+            renderedBoardHeight: sceneHeight,
+            renderedBoardWidth: sceneWidth,
+            x: point.x + size / 2,
+            y: point.y + size * 0.7,
+          });
+          const nearestTreeDistance = Math.min(
+            ...treeRoots.map((root) => Math.hypot(footPoint.x - root.x, footPoint.y - root.y)),
+          );
+
+          expect(nearestTreeDistance).toBeGreaterThanOrEqual(minimumTreeRootDistance);
+        }
+      }
+    }
+  });
+
+  it('varies a companion route between full loops without leaving the roaming band', () => {
+    const sceneWidth = 390;
+    const size = 84;
+    const firstLoop = Array.from({ length: 12 }, (_, step) =>
+      getRoamingAnimalPoint({ companionId: 'desert_fox', index: 1, sceneWidth, size, step }),
+    );
+    const secondLoop = Array.from({ length: 12 }, (_, step) =>
+      getRoamingAnimalPoint({ companionId: 'desert_fox', index: 1, sceneWidth, size, step: step + 12 }),
+    );
+
+    expect(
+      secondLoop.some((point, index) => point.x !== firstLoop[index].x || point.y !== firstLoop[index].y),
+    ).toBe(true);
+
+    for (const point of [...firstLoop, ...secondLoop]) {
+      expect(point.x).toBeGreaterThanOrEqual(18);
+      expect(point.x + size).toBeLessThanOrEqual(sceneWidth - 18);
+      expect(point.y).toBeGreaterThanOrEqual(24);
+      expect(point.y).toBeLessThanOrEqual(132);
     }
   });
 
@@ -72,6 +290,71 @@ describe('animal roaming layout', () => {
     expect(getRoamingAnimalMove({ from: { x: 40, y: 0 }, to: { x: 140, y: 0 }, size: 72 }).durationMs).toBeGreaterThan(
       getRoamingAnimalMove({ from: { x: 40, y: 0 }, to: { x: 140, y: 0 }, size: 104 }).durationMs,
     );
+  });
+
+  it('does not force long mini forest walks to outrun the side-view walking frames', () => {
+    const size = 34;
+    const distance = 200;
+    const speed = getRoamingAnimalWalkSpeedPxPerSecond({
+      companionId: 'desert_fox',
+      size,
+    });
+    const move = getRoamingAnimalMove({
+      area: 'forest',
+      companionId: 'desert_fox',
+      from: { x: 40, y: 0 },
+      size,
+      to: { x: 40 + distance, y: 0 },
+    });
+
+    expect(move.durationMs).toBe(Math.round((distance / speed) * 1000));
+    expect(move.durationMs).toBeGreaterThan(9200);
+  });
+
+  it('keeps each movement chunk inside the current walking frame window', () => {
+    const dogFinalWalkingFrame = getRoamingAnimalMotionState({
+      companionId: 'dog',
+      elapsedMs: 9729,
+    });
+    const dogStoppedFrame = getRoamingAnimalMotionState({
+      companionId: 'dog',
+      elapsedMs: 9730,
+    });
+
+    expect(dogFinalWalkingFrame).toMatchObject({
+      moving: true,
+      remainingMovingMs: 1,
+      waitMs: 0,
+    });
+    expect(dogStoppedFrame).toMatchObject({
+      moving: false,
+      remainingMovingMs: 0,
+      waitMs: 1370,
+    });
+    expect(
+      getRoamingAnimalMotionChunkDurationMs({
+        remainingMoveDurationMs: 500,
+        remainingMovingMs: dogFinalWalkingFrame.remainingMovingMs,
+      }),
+    ).toBe(1);
+    expect(
+      getRoamingAnimalMotionChunkDurationMs({
+        remainingMoveDurationMs: 499,
+        remainingMovingMs: dogStoppedFrame.remainingMovingMs,
+      }),
+    ).toBe(0);
+    expect(
+      getRoamingAnimalMotionChunkDurationMs({
+        remainingMoveDurationMs: 12,
+        remainingMovingMs: 30,
+      }),
+    ).toBe(12);
+    expect(
+      getRoamingAnimalMotionChunkDurationMs({
+        remainingMoveDurationMs: 0,
+        remainingMovingMs: 30,
+      }),
+    ).toBe(0);
   });
 
   it('flips the left-facing side sprite toward the travel direction', () => {
@@ -175,11 +458,61 @@ describe('animal roaming layout', () => {
     const minimumCenterDistance = size * 0.85;
 
     for (let step = 0; step < 12; step += 1) {
-      const first = getRoamingAnimalPoint({ index: 0, sceneWidth, size, step });
-      const second = getRoamingAnimalPoint({ index: 1, sceneWidth, size, step });
+      const first = getRoamingAnimalPoint({
+        companionId: 'baby_rabbit',
+        index: 0,
+        sceneWidth,
+        size,
+        step,
+      });
+      const second = getRoamingAnimalPoint({
+        companionId: 'desert_fox',
+        index: 1,
+        sceneWidth,
+        size,
+        step,
+      });
       const centerDistance = Math.hypot(first.x - second.x, first.y - second.y);
 
       expect(centerDistance).toBeGreaterThanOrEqual(minimumCenterDistance);
+    }
+  });
+
+  it('eases movement progress so walk starts softly and then accelerates', () => {
+    expect(getRoamingAnimalMovementProgress(0)).toBe(0);
+    expect(getRoamingAnimalMovementProgress(1)).toBe(1);
+    expect(getRoamingAnimalMovementProgress(0.2)).toBeLessThan(0.2);
+    expect(getRoamingAnimalMovementProgress(0.5)).toBeCloseTo(0.5, 3);
+    expect(getRoamingAnimalMovementProgress(0.8)).toBeGreaterThan(0.8);
+  });
+
+  it('keeps simultaneous animal lanes from overlapping even when their route phases differ', () => {
+    const sceneWidth = 390;
+    const size = 84;
+
+    for (let firstStep = 0; firstStep < 24; firstStep += 1) {
+      for (let secondStep = 0; secondStep < 24; secondStep += 1) {
+        const first = getRoamingAnimalPoint({
+          companionId: 'baby_rabbit',
+          index: 0,
+          sceneWidth,
+          size,
+          step: firstStep,
+        });
+        const second = getRoamingAnimalPoint({
+          companionId: 'desert_fox',
+          index: 1,
+          sceneWidth,
+          size,
+          step: secondStep,
+        });
+        const firstScreenY = first.y - getRoamingAnimalLayerOffsetY({ index: 0, size });
+        const secondScreenY = second.y - getRoamingAnimalLayerOffsetY({ index: 1, size });
+        const separatedHorizontally = Math.abs(first.x - second.x) >= size;
+        const separatedVertically = Math.abs(firstScreenY - secondScreenY) >= size * 0.92;
+
+        expect(separatedHorizontally || separatedVertically).toBe(true);
+      }
     }
   });
 
@@ -224,6 +557,39 @@ describe('animal roaming layout', () => {
     expect(new Set(indexes.map((index) => getRoamingAnimalInitialDelayMs({ index }))).size).toBeGreaterThan(1);
   });
 
+  it('uses longer staggered timing for forest animals', () => {
+    const indexes = [0, 1, 2, 3, 4, 5];
+    const forestInitialDelays = indexes.map((index) =>
+      getRoamingAnimalInitialDelayMs({ area: 'forest', index }),
+    );
+    const forestRestCounts = indexes.map((index) =>
+      getRoamingAnimalNextRestWalkCount({
+        area: 'forest',
+        companionId: ['baby_rabbit', 'desert_fox', 'rock_hyrax', 'lion', 'sheep', 'dog'][index],
+        cycle: 0,
+        index,
+      }),
+    );
+    const growRestDelay = getRoamingAnimalIdleDelayMs({
+      area: 'grow',
+      index: 0,
+      resting: true,
+      step: 7,
+    });
+    const forestRestDelay = getRoamingAnimalIdleDelayMs({
+      area: 'forest',
+      index: 0,
+      resting: true,
+      step: 11,
+    });
+
+    expect(new Set(forestInitialDelays).size).toBe(indexes.length);
+    expect(Math.max(...forestInitialDelays)).toBeGreaterThan(7000);
+    expect(Math.min(...forestRestCounts)).toBeGreaterThanOrEqual(11);
+    expect(Math.max(...forestRestCounts)).toBeLessThanOrEqual(18);
+    expect(forestRestDelay).toBeGreaterThan(growRestDelay);
+  });
+
   it('varies the next front-facing rest count by animal slot and cycle', () => {
     const firstCycleCounts = [0, 1, 2, 3, 4].map((index) =>
       getRoamingAnimalNextRestWalkCount({ companionId: 'dog', cycle: 0, index }),
@@ -243,17 +609,8 @@ describe('animal roaming layout', () => {
   });
 
   it('keeps translation continuous through face-forward frames that are still walking', () => {
-    const samplesByCompanionId = {
-      baby_rabbit: [0, 2500, 6500, 10020],
-      dog: [1400, 2500, 6500, 9400],
-      desert_fox: [900, 1200, 4100, 6500, 7900],
-      rock_hyrax: [900, 1600, 5400],
-      lion: [0, 1600, 5400, 6020],
-      sheep: [0, 1600, 5400, 6020],
-    };
-
-    for (const [companionId, samples] of Object.entries(samplesByCompanionId)) {
-      for (const elapsedMs of samples) {
+    for (const [companionId, profile] of Object.entries(EXPECTED_ROAMING_MOTION_PROFILES)) {
+      for (const elapsedMs of profile.movingSamples) {
         const motionState = getRoamingAnimalMotionState({ companionId, elapsedMs });
 
         expect(motionState.moving).toBe(true);
@@ -264,16 +621,126 @@ describe('animal roaming layout', () => {
   });
 
   it('pauses translation only for true non-walking portions inside side-view GIFs', () => {
-    expect(getRoamingAnimalMotionState({ companionId: 'dog', elapsedMs: 200 }).moving).toBe(false);
-    expect(getRoamingAnimalMotionState({ companionId: 'dog', elapsedMs: 1100 }).moving).toBe(false);
-    expect(getRoamingAnimalMotionState({ companionId: 'dog', elapsedMs: 9900 }).moving).toBe(false);
-    expect(getRoamingAnimalMotionState({ companionId: 'desert_fox', elapsedMs: 200 }).moving).toBe(false);
-    expect(getRoamingAnimalMotionState({ companionId: 'desert_fox', elapsedMs: 820 }).moving).toBe(false);
-    expect(getRoamingAnimalMotionState({ companionId: 'desert_fox', elapsedMs: 8100 }).moving).toBe(false);
-    expect(getRoamingAnimalMotionState({ companionId: 'desert_fox', elapsedMs: 8500 }).moving).toBe(false);
-    expect(getRoamingAnimalMotionState({ companionId: 'desert_fox', elapsedMs: 9900 }).moving).toBe(false);
-    expect(getRoamingAnimalMotionState({ companionId: 'rock_hyrax', elapsedMs: 500 }).moving).toBe(false);
-    expect(getRoamingAnimalMotionState({ companionId: 'rock_hyrax', elapsedMs: 5800 }).moving).toBe(false);
+    for (const [companionId, profile] of Object.entries(EXPECTED_ROAMING_MOTION_PROFILES)) {
+      for (const elapsedMs of profile.stoppedSamples) {
+        const motionState = getRoamingAnimalMotionState({ companionId, elapsedMs });
+
+        expect(motionState.moving).toBe(false);
+        expect(motionState.remainingMovingMs).toBe(0);
+        expect(motionState.waitMs).toBeGreaterThan(0);
+      }
+    }
+  });
+
+  it('pins every current animal to frame-counted side-view motion windows', () => {
+    for (const [companionId, expectedProfile] of Object.entries(EXPECTED_ROAMING_MOTION_PROFILES)) {
+      const actualProfile = getRoamingAnimalMotionProfile({ companionId });
+
+      expect(actualProfile.loopDurationMs).toBe(expectedProfile.loopDurationMs);
+      expect(actualProfile.movingWindows).toEqual(expectedProfile.movingWindows);
+      expect(getRoamingAnimalActiveMotionDurationMs({ companionId })).toBe(
+        expectedProfile.activeDurationMs,
+      );
+    }
+  });
+
+  it('keeps frame-counted motion windows stable across repeated GIF loops', () => {
+    for (const [companionId, profile] of Object.entries(EXPECTED_ROAMING_MOTION_PROFILES)) {
+      for (const elapsedMs of profile.movingSamples) {
+        for (const loopMultiplier of [0, 1, 2, 5]) {
+          expect(
+            getRoamingAnimalMotionState({
+              companionId,
+              elapsedMs: elapsedMs + profile.loopDurationMs * loopMultiplier,
+            }).moving,
+          ).toBe(true);
+        }
+      }
+
+      for (const elapsedMs of profile.stoppedSamples) {
+        for (const loopMultiplier of [0, 1, 2, 5]) {
+          expect(
+            getRoamingAnimalMotionState({
+              companionId,
+              elapsedMs: elapsedMs + profile.loopDurationMs * loopMultiplier,
+            }).moving,
+          ).toBe(false);
+        }
+      }
+    }
+  });
+
+  it('holds rock_hyrax stationary during exact side-GIF pause boundary frames', () => {
+    const companionId = 'rock_hyrax';
+
+    const boundaryChecks = [
+      { elapsedMs: 799, moving: false, remainingMovingMs: 0, waitMs: 1 },
+      { elapsedMs: 800, moving: true, remainingMovingMs: 4800, waitMs: 0 },
+      { elapsedMs: 5599, moving: true, remainingMovingMs: 1, waitMs: 0 },
+      { elapsedMs: 5600, moving: false, remainingMovingMs: 0, waitMs: 1230 },
+      { elapsedMs: 5630, moving: false, remainingMovingMs: 0, waitMs: 1200 },
+      { elapsedMs: 6029, moving: false, remainingMovingMs: 0, waitMs: 801 },
+    ];
+
+    for (const expected of boundaryChecks) {
+      const motionState = getRoamingAnimalMotionState({
+        companionId,
+        elapsedMs: expected.elapsedMs,
+      });
+
+      expect(motionState.moving).toBe(expected.moving);
+      expect(motionState.remainingMovingMs).toBe(expected.remainingMovingMs);
+      expect(motionState.waitMs).toBe(expected.waitMs);
+      expect(getRoamingAnimalPose({ walking: motionState.moving })).toBe(
+        expected.moving ? 'walking' : 'idle',
+      );
+    }
+  });
+
+  it('holds side-view intro and tail rest frames stationary for animals that include them', () => {
+    const boundaryChecks = [
+      { companionId: 'baby_rabbit', elapsedMs: 529, moving: false, waitMs: 1 },
+      { companionId: 'baby_rabbit', elapsedMs: 530, moving: true, waitMs: 0 },
+      { companionId: 'dog', elapsedMs: 1069, moving: false, waitMs: 1 },
+      { companionId: 'dog', elapsedMs: 1070, moving: true, waitMs: 0 },
+      { companionId: 'dog', elapsedMs: 9729, moving: true, waitMs: 0 },
+      { companionId: 'dog', elapsedMs: 9730, moving: false, waitMs: 1370 },
+      { companionId: 'desert_fox', elapsedMs: 599, moving: false, waitMs: 1 },
+      { companionId: 'desert_fox', elapsedMs: 600, moving: true, waitMs: 0 },
+      { companionId: 'desert_fox', elapsedMs: 7929, moving: true, waitMs: 0 },
+      { companionId: 'desert_fox', elapsedMs: 7930, moving: false, waitMs: 2670 },
+      { companionId: 'desert_fox', elapsedMs: 8000, moving: false, waitMs: 2600 },
+    ];
+
+    for (const expected of boundaryChecks) {
+      const motionState = getRoamingAnimalMotionState({
+        companionId: expected.companionId,
+        elapsedMs: expected.elapsedMs,
+      });
+
+      expect(motionState.moving).toBe(expected.moving);
+      expect(motionState.waitMs).toBe(expected.waitMs);
+    }
+  });
+
+  it('keeps rock_hyrax pause/move timing stable when advancing by full GIF loops', () => {
+    const profile = getRoamingAnimalMotionProfile({ companionId: 'rock_hyrax' });
+    const sampleOffsets = [0, 1, 799, 800, 801, 5599, 5600, 5630, 5800];
+
+    for (const elapsedMs of sampleOffsets) {
+      const first = getRoamingAnimalMotionState({ companionId: 'rock_hyrax', elapsedMs });
+
+      for (const loop of [1, 2, 5]) {
+        const repeat = getRoamingAnimalMotionState({
+          companionId: 'rock_hyrax',
+          elapsedMs: elapsedMs + profile.loopDurationMs * loop,
+        });
+
+        expect(repeat.moving).toBe(first.moving);
+        expect(repeat.waitMs).toBe(first.waitMs);
+        expect(repeat.remainingMovingMs).toBe(first.remainingMovingMs);
+      }
+    }
   });
 
   it('keeps every current animal on the shared side-view roaming model', () => {

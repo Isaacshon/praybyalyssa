@@ -20,12 +20,9 @@ try {
 
 const repoRoot = path.resolve(__dirname, '..');
 const sourceRoot = path.join(repoRoot, 'Logo', 'forest asset');
+const intermediateRoot = path.join(repoRoot, '.codex-diagnostics', 'release-assets');
 const outputPath = path.join(
-  repoRoot,
-  'assets',
-  'images',
-  'praybor',
-  'animals',
+  intermediateRoot,
   'desert-fox-side-stable.gif',
 );
 
@@ -36,11 +33,7 @@ const sourceSignature = {
 };
 
 const alphaThreshold = 16;
-const sittingMaxHeight = 650;
-const sittingWindowsMs = [
-  { startMs: 0, endMs: 900 },
-  { startMs: 8000, endMs: 10000 },
-];
+const corruptedOpeningFrameCount = 2;
 
 function walkFiles(directory) {
   return fs.readdirSync(directory, { withFileTypes: true }).flatMap((entry) => {
@@ -118,80 +111,48 @@ function getFrameVisualBounds(frame) {
   };
 }
 
-function isSittingFrame(elapsedMs) {
-  return sittingWindowsMs.some((window) => elapsedMs >= window.startMs && elapsedMs < window.endMs);
+function getFrameAnchor(frame) {
+  const bounds = getFrameVisualBounds(frame);
+
+  return {
+    bottom: bounds.bottom,
+    centerX: bounds.x + bounds.width / 2,
+  };
 }
 
-function copyOriginalFrame(frame) {
+function getMedian(values) {
+  const sortedValues = [...values].sort((left, right) => left - right);
+  const middleIndex = Math.floor(sortedValues.length / 2);
+
+  return sortedValues.length % 2 === 0
+    ? (sortedValues[middleIndex - 1] + sortedValues[middleIndex]) / 2
+    : sortedValues[middleIndex];
+}
+
+function copyOriginalFrame(frame, targetAnchor) {
   const source = frame.bitmap;
   const outputWidth = sourceSignature.width;
   const outputHeight = sourceSignature.height;
   const output = Buffer.alloc(outputWidth * outputHeight * 4);
+  const anchor = getFrameAnchor(frame);
+  const shiftX = Math.round(targetAnchor.centerX - anchor.centerX);
+  const shiftY = Math.round(targetAnchor.bottom - anchor.bottom);
 
   for (let y = 0; y < source.height; y += 1) {
-    const targetY = y + frame.yOffset;
+    const targetY = y + frame.yOffset + shiftY;
 
     if (targetY < 0 || targetY >= outputHeight) {
       continue;
     }
 
     for (let x = 0; x < source.width; x += 1) {
-      const targetX = x + frame.xOffset;
+      const targetX = x + frame.xOffset + shiftX;
 
       if (targetX < 0 || targetX >= outputWidth) {
         continue;
       }
 
       const sourceIndex = (y * source.width + x) * 4;
-      const targetIndex = (targetY * outputWidth + targetX) * 4;
-      const alpha = source.data[sourceIndex + 3];
-
-      if (alpha <= alphaThreshold) {
-        continue;
-      }
-
-      output[targetIndex] = source.data[sourceIndex];
-      output[targetIndex + 1] = source.data[sourceIndex + 1];
-      output[targetIndex + 2] = source.data[sourceIndex + 2];
-      output[targetIndex + 3] = 255;
-    }
-  }
-
-  return output;
-}
-
-function scaleSittingFrame(frame) {
-  const source = frame.bitmap;
-  const outputWidth = sourceSignature.width;
-  const outputHeight = sourceSignature.height;
-  const output = Buffer.alloc(outputWidth * outputHeight * 4);
-  const localBounds = getContentBounds(source);
-  const globalBounds = getFrameVisualBounds(frame);
-  const scale = Math.min(1, sittingMaxHeight / Math.max(1, globalBounds.height));
-  const targetWidth = Math.max(1, Math.round(globalBounds.width * scale));
-  const targetHeight = Math.max(1, Math.round(globalBounds.height * scale));
-  const targetLeft = Math.round(globalBounds.x + globalBounds.width / 2 - targetWidth / 2);
-  const targetTop = Math.round(globalBounds.bottom - targetHeight + 1);
-
-  for (let y = 0; y < targetHeight; y += 1) {
-    const sourceY =
-      localBounds.y + Math.min(localBounds.height - 1, Math.floor(((y + 0.5) * localBounds.height) / targetHeight));
-    const targetY = targetTop + y;
-
-    if (targetY < 0 || targetY >= outputHeight) {
-      continue;
-    }
-
-    for (let x = 0; x < targetWidth; x += 1) {
-      const sourceX =
-        localBounds.x + Math.min(localBounds.width - 1, Math.floor(((x + 0.5) * localBounds.width) / targetWidth));
-      const targetX = targetLeft + x;
-
-      if (targetX < 0 || targetX >= outputWidth) {
-        continue;
-      }
-
-      const sourceIndex = (sourceY * source.width + sourceX) * 4;
       const targetIndex = (targetY * outputWidth + targetX) * 4;
       const alpha = source.data[sourceIndex + 3];
 
@@ -209,13 +170,13 @@ function scaleSittingFrame(frame) {
   return output;
 }
 
-function normalizeFrame(frame, elapsedMs) {
+function normalizeFrame(frame, targetAnchor, delayCentisecs) {
   const outputWidth = sourceSignature.width;
   const outputHeight = sourceSignature.height;
-  const output = isSittingFrame(elapsedMs) ? scaleSittingFrame(frame) : copyOriginalFrame(frame);
+  const output = copyOriginalFrame(frame, targetAnchor);
 
   return new GifFrame(outputWidth, outputHeight, output, {
-    delayCentisecs: frame.delayCentisecs || 3,
+    delayCentisecs: delayCentisecs || frame.delayCentisecs || 3,
     disposalMethod: GifFrame.DisposeToBackgroundColor,
     interlaced: false,
   });
@@ -236,12 +197,18 @@ function summarizeBounds(bounds) {
 async function main() {
   const { gif, gifPath } = await findSourceGif();
   const sourceBounds = gif.frames.map((frame) => getFrameVisualBounds(frame));
-  let elapsedMs = 0;
-  const outputFrames = gif.frames.map((frame) => {
-    const outputFrame = normalizeFrame(frame, elapsedMs);
-    elapsedMs += (frame.delayCentisecs || 0) * 10;
+  const stableFrames = gif.frames.slice(corruptedOpeningFrameCount);
+  const targetAnchor = {
+    bottom: Math.round(getMedian(stableFrames.map((frame) => getFrameAnchor(frame).bottom))),
+    centerX: Math.round(getMedian(stableFrames.map((frame) => getFrameAnchor(frame).centerX))),
+  };
+  const outputFrames = gif.frames.map((frame, frameIndex) => {
+    const sourceFrame =
+      frameIndex < corruptedOpeningFrameCount
+        ? gif.frames[corruptedOpeningFrameCount]
+        : frame;
 
-    return outputFrame;
+    return normalizeFrame(sourceFrame, targetAnchor, frame.delayCentisecs);
   });
 
   fs.mkdirSync(path.dirname(outputPath), { recursive: true });

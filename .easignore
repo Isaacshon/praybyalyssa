@@ -1,0 +1,90 @@
+# dependencies
+node_modules
+node_modules/**
+
+# Expo / build outputs
+.expo
+.expo/**
+.expo-build-check
+.expo-build-check/**
+.expo-export-*
+.expo-export-*/**
+.eas-archive-*
+.eas-archive-*/**
+dist
+dist/**
+web-build
+web-build/**
+builds
+builds/**
+expo-env.d.ts
+
+# local browser and diagnostic outputs
+.codex-diagnostics
+.codex-diagnostics/**
+.edge-debug-profile
+.edge-debug-profile/**
+.playwright-mcp
+.playwright-mcp/**
+.git
+.git/**
+.agents
+.agents/**
+.claude
+.claude/**
+.codex
+.codex/**
+.vscode
+.vscode/**
+.tmp
+.tmp/**
+test-results
+test-results/**
+store-assets
+store-assets/**
+
+# Native local outputs and credentials
+.kotlin
+.kotlin/**
+*.orig.*
+*.jks
+credentials.json
+*.p8
+*.p12
+*.key
+*.mobileprovision
+ios
+ios/**
+android
+android/**
+
+# Metro
+.metro-health-check*
+
+# debug logs and root screenshots
+*.log
+npm-debug.*
+yarn-debug.*
+yarn-error.*
+/*.png
+
+# source-only design assets
+Logo
+Logo/**
+assets/images/praybor/animals/desert-fox-side-stable.gif
+
+# generated post-it background trials
+assets/images/praybor/post-it/board
+assets/images/praybor/post-it/board/**
+assets/images/praybor/post-it/group
+assets/images/praybor/post-it/group/**
+
+# local env files
+.env*.local
+apple developer.txt
+supabase/.temp
+supabase/.temp/**
+
+# generated metadata
+*.tsbuildinfo
+app-example

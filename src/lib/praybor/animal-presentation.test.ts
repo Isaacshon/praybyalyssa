@@ -15,7 +15,7 @@ describe('animal companion presentation', () => {
     expect(getAnimalCompanionImageFrameScaleX({ companionId: 'baby_rabbit', pose: 'idle' })).toBe(1);
   });
 
-  it('normalizes the desert fox side-view canvas before applying fine size calibration', () => {
+  it('normalizes the desert fox side-view canvas while keeping pose scale fixed', () => {
     const walkingScale = getAnimalCompanionImageScale({ companionId: 'desert_fox', pose: 'walking' });
     const idleScale = getAnimalCompanionImageScale({ companionId: 'desert_fox', pose: 'idle' });
     const walkingFrameScaleX = getAnimalCompanionImageFrameScaleX({
@@ -24,9 +24,8 @@ describe('animal companion presentation', () => {
     });
 
     expect(walkingFrameScaleX).toBeCloseTo(16 / 9, 2);
-    expect(walkingScale).toBeCloseTo(1.02, 2);
-    expect(idleScale).toBeCloseTo(0.98, 2);
-    expect(walkingScale / idleScale).toBeLessThan(1.05);
+    expect(walkingScale).toBe(1);
+    expect(idleScale).toBe(1);
   });
 
   it('falls back to the baseline scale for animals without a custom visual calibration', () => {
@@ -47,14 +46,14 @@ describe('animal companion presentation', () => {
     expect(getAnimalCompanionPoseLoopDurationMs({ companionId: 'unknown', pose: 'walking' })).toBe(6030);
   });
 
-  it('delays pose switches until the current animation loop completes', () => {
+  it('switches poses immediately so stopped animals do not keep walking in place', () => {
     expect(
       getAnimalCompanionPoseSwitchDelayMs({
         companionId: 'desert_fox',
         currentPose: 'walking',
         elapsedMs: 2500,
       }),
-    ).toBe(7500);
+    ).toBe(0);
     expect(
       getAnimalCompanionPoseSwitchDelayMs({
         companionId: 'desert_fox',
@@ -68,7 +67,7 @@ describe('animal companion presentation', () => {
         currentPose: 'idle',
         elapsedMs: 6040,
       }),
-    ).toBe(6020);
+    ).toBe(0);
     expect(
       getAnimalCompanionPoseSwitchDelayMs({
         companionId: 'baby_rabbit',

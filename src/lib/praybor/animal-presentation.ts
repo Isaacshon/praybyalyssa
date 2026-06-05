@@ -3,10 +3,6 @@ import type { RoamingAnimalPose } from './animal-roaming';
 const ANIMAL_COMPANION_IMAGE_SCALES: Partial<
   Record<string, Partial<Record<RoamingAnimalPose, number>>>
 > = {
-  desert_fox: {
-    walking: 1.02,
-    idle: 0.98,
-  },
 };
 
 const ANIMAL_COMPANION_IMAGE_FRAME_SCALE_X: Partial<
@@ -81,9 +77,6 @@ export function getAnimalCompanionPoseLoopDurationMs({
 }
 
 export function getAnimalCompanionPoseSwitchDelayMs({
-  companionId,
-  currentPose,
-  elapsedMs,
   reduceMotion = false,
 }: {
   companionId: string;
@@ -95,11 +88,5 @@ export function getAnimalCompanionPoseSwitchDelayMs({
     return 0;
   }
 
-  const loopDurationMs = getAnimalCompanionPoseLoopDurationMs({
-    companionId,
-    pose: currentPose,
-  });
-  const normalizedElapsedMs = ((elapsedMs % loopDurationMs) + loopDurationMs) % loopDurationMs;
-
-  return normalizedElapsedMs === 0 ? 0 : loopDurationMs - normalizedElapsedMs;
+  return 0;
 }
