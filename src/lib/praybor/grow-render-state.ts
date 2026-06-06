@@ -18,6 +18,20 @@ export function shouldKeepOpenedOverlayMounted({
   return hasOpened || isVisible;
 }
 
+export function getNextForestDioramaRenderSessionKey(currentSessionKey: number) {
+  return currentSessionKey + 1;
+}
+
+export function getForestDioramaBoardRecyclingKey({
+  imageSignature,
+  renderSessionKey,
+}: {
+  imageSignature: string;
+  renderSessionKey: number;
+}) {
+  return `forest-diorama-board-${renderSessionKey}-${imageSignature}`;
+}
+
 export function shouldWarmGrowOverlayAssets({
   growSceneContentReady,
   growSceneHasRendered,

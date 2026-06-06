@@ -39,6 +39,8 @@ import {
 } from '@/lib/praybor/grow-map-areas';
 import { loadGrowPreferences, persistGrowPreferences } from '@/lib/praybor/grow-preferences';
 import {
+  getForestDioramaBoardRecyclingKey,
+  getNextForestDioramaRenderSessionKey,
   shouldKeepOpenedOverlayMounted,
   shouldWarmGrowOverlayAssets,
   shouldTreatSceneAssetsAsReady,
@@ -213,7 +215,7 @@ const TREE_STAGE_SIZE_FACTORS: Record<TreeGrowthStage, number> = {
 };
 const FOREST_FLAT_MAP = {
   id: 'forest-flat-grid',
-  backgroundColor: '#111722',
+  backgroundColor: '#B9D8A8',
   image: FOREST_FLAT_MAP_IMAGE,
 } as const;
 const FOREST_DIORAMA_PAN_LIMIT_X = 32;
@@ -469,12 +471,20 @@ function getForestDioramaPinchCenter(event: GestureResponderEvent) {
 }
 
 function ForestDioramaBoard({
+  renderSessionKey,
   source,
 }: {
+  renderSessionKey: number;
   source: ImageSourcePropType;
 }) {
+  const recyclingKey = getForestDioramaBoardRecyclingKey({
+    imageSignature: getGrowImageSourceSignature(source),
+    renderSessionKey,
+  });
+
   return (
     <ExpoImage
+      key={recyclingKey}
       accessibilityIgnoresInvertColors
       accessible={false}
       pointerEvents="none"
@@ -482,7 +492,7 @@ function ForestDioramaBoard({
       contentFit="cover"
       cachePolicy="memory-disk"
       priority="high"
-      recyclingKey={`forest-diorama-board-${String(source)}`}
+      recyclingKey={recyclingKey}
       style={styles.forestDioramaBoardImage}
     />
   );
@@ -1310,6 +1320,7 @@ export function GrowScreen() {
   const [completedTreeCount, setCompletedTreeCount] = useState(growPreviewCompletedTreeCount);
   const [forestVisible, setForestVisible] = useState(false);
   const [forestHasOpened, setForestHasOpened] = useState(false);
+  const [forestDioramaRenderSessionKey, setForestDioramaRenderSessionKey] = useState(0);
   const [mapVisible, setMapVisible] = useState(false);
   const [mapHasOpened, setMapHasOpened] = useState(false);
   const [selectedMapIndex, setSelectedMapIndex] = useState(0);
@@ -2002,6 +2013,7 @@ export function GrowScreen() {
     forestDioramaPanValue.current = { x: 0, y: 0 };
     forestDioramaZoom.setValue(FOREST_DIORAMA_MIN_ZOOM);
     forestDioramaPan.setValue({ x: 0, y: 0 });
+    setForestDioramaRenderSessionKey(getNextForestDioramaRenderSessionKey);
     setForestHasOpened(true);
     setForestVisible(true);
   }
@@ -3474,7 +3486,10 @@ export function GrowScreen() {
                           setForestDioramaBoardWidth(event.nativeEvent.layout.width);
                           setForestDioramaBoardHeight(event.nativeEvent.layout.height);
                         }}>
-                        <ForestDioramaBoard source={selectedDioramaTheme.image} />
+                        <ForestDioramaBoard
+                          renderSessionKey={forestDioramaRenderSessionKey}
+                          source={selectedDioramaTheme.image}
+                        />
                         {FOREST_DIORAMA_SLOTS.map((slot, index) => {
                           const entry = forestDioramaEntries[index];
 

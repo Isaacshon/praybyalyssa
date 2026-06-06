@@ -1,6 +1,8 @@
 import { describe, expect, it } from 'vitest';
 
 import {
+  getForestDioramaBoardRecyclingKey,
+  getNextForestDioramaRenderSessionKey,
   shouldKeepOpenedOverlayMounted,
   shouldWarmGrowOverlayAssets,
   shouldTreatSceneAssetsAsReady,
@@ -99,6 +101,26 @@ describe('grow screen render readiness', () => {
     expect(shouldKeepOpenedOverlayMounted({ hasOpened: false, isVisible: false })).toBe(false);
     expect(shouldKeepOpenedOverlayMounted({ hasOpened: false, isVisible: true })).toBe(true);
     expect(shouldKeepOpenedOverlayMounted({ hasOpened: true, isVisible: false })).toBe(true);
+  });
+
+  it('rotates the forest diorama board image key each time the forest opens', () => {
+    const imageSignature = 'asset:forest-flat-grid';
+    const firstOpenSessionKey = getNextForestDioramaRenderSessionKey(0);
+    const secondOpenSessionKey = getNextForestDioramaRenderSessionKey(firstOpenSessionKey);
+
+    expect(firstOpenSessionKey).toBe(1);
+    expect(secondOpenSessionKey).toBe(2);
+    expect(
+      getForestDioramaBoardRecyclingKey({
+        imageSignature,
+        renderSessionKey: firstOpenSessionKey,
+      }),
+    ).not.toBe(
+      getForestDioramaBoardRecyclingKey({
+        imageSignature,
+        renderSessionKey: secondOpenSessionKey,
+      }),
+    );
   });
 
   it('starts warming overlay assets as soon as the grow scene can render once', () => {
