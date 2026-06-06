@@ -29,10 +29,10 @@ import {
 const EXPECTED_ROAMING_MOTION_PROFILES = {
   baby_rabbit: {
     loopDurationMs: 10030,
-    movingWindows: [{ startMs: 530, endMs: 10030 }],
-    activeDurationMs: 9500,
-    movingSamples: [530, 800, 2500, 6500, 10020],
-    stoppedSamples: [0, 270, 529],
+    movingWindows: [{ startMs: 670, endMs: 10030 }],
+    activeDurationMs: 9360,
+    movingSamples: [670, 800, 2500, 6500, 10020],
+    stoppedSamples: [0, 270, 529, 669],
   },
   dog: {
     loopDurationMs: 10030,
@@ -50,10 +50,10 @@ const EXPECTED_ROAMING_MOTION_PROFILES = {
   },
   rock_hyrax: {
     loopDurationMs: 6030,
-    movingWindows: [{ startMs: 800, endMs: 5600 }],
-    activeDurationMs: 4800,
-    movingSamples: [800, 900, 1600, 5400, 5599],
-    stoppedSamples: [0, 500, 799, 5600, 5630, 5800, 6000],
+    movingWindows: [{ startMs: 1000, endMs: 5330 }],
+    activeDurationMs: 4330,
+    movingSamples: [1000, 1100, 1600, 4200, 5329],
+    stoppedSamples: [0, 500, 999, 5330, 5600, 5630, 5800, 6000],
   },
   lion: {
     loopDurationMs: 6030,
@@ -585,8 +585,8 @@ describe('animal roaming layout', () => {
 
     expect(new Set(forestInitialDelays).size).toBe(indexes.length);
     expect(Math.max(...forestInitialDelays)).toBeGreaterThan(7000);
-    expect(Math.min(...forestRestCounts)).toBeGreaterThanOrEqual(11);
-    expect(Math.max(...forestRestCounts)).toBeLessThanOrEqual(18);
+    expect(Math.min(...forestRestCounts)).toBeGreaterThanOrEqual(110);
+    expect(Math.max(...forestRestCounts)).toBeLessThanOrEqual(180);
     expect(forestRestDelay).toBeGreaterThan(growRestDelay);
   });
 
@@ -674,12 +674,12 @@ describe('animal roaming layout', () => {
     const companionId = 'rock_hyrax';
 
     const boundaryChecks = [
-      { elapsedMs: 799, moving: false, remainingMovingMs: 0, waitMs: 1 },
-      { elapsedMs: 800, moving: true, remainingMovingMs: 4800, waitMs: 0 },
-      { elapsedMs: 5599, moving: true, remainingMovingMs: 1, waitMs: 0 },
-      { elapsedMs: 5600, moving: false, remainingMovingMs: 0, waitMs: 1230 },
-      { elapsedMs: 5630, moving: false, remainingMovingMs: 0, waitMs: 1200 },
-      { elapsedMs: 6029, moving: false, remainingMovingMs: 0, waitMs: 801 },
+      { elapsedMs: 999, moving: false, remainingMovingMs: 0, waitMs: 1 },
+      { elapsedMs: 1000, moving: true, remainingMovingMs: 4330, waitMs: 0 },
+      { elapsedMs: 5329, moving: true, remainingMovingMs: 1, waitMs: 0 },
+      { elapsedMs: 5330, moving: false, remainingMovingMs: 0, waitMs: 1700 },
+      { elapsedMs: 5600, moving: false, remainingMovingMs: 0, waitMs: 1430 },
+      { elapsedMs: 6029, moving: false, remainingMovingMs: 0, waitMs: 1001 },
     ];
 
     for (const expected of boundaryChecks) {
@@ -699,8 +699,9 @@ describe('animal roaming layout', () => {
 
   it('holds side-view intro and tail rest frames stationary for animals that include them', () => {
     const boundaryChecks = [
-      { companionId: 'baby_rabbit', elapsedMs: 529, moving: false, waitMs: 1 },
-      { companionId: 'baby_rabbit', elapsedMs: 530, moving: true, waitMs: 0 },
+      { companionId: 'baby_rabbit', elapsedMs: 529, moving: false, waitMs: 141 },
+      { companionId: 'baby_rabbit', elapsedMs: 669, moving: false, waitMs: 1 },
+      { companionId: 'baby_rabbit', elapsedMs: 670, moving: true, waitMs: 0 },
       { companionId: 'dog', elapsedMs: 1069, moving: false, waitMs: 1 },
       { companionId: 'dog', elapsedMs: 1070, moving: true, waitMs: 0 },
       { companionId: 'dog', elapsedMs: 9729, moving: true, waitMs: 0 },
@@ -725,7 +726,7 @@ describe('animal roaming layout', () => {
 
   it('keeps rock_hyrax pause/move timing stable when advancing by full GIF loops', () => {
     const profile = getRoamingAnimalMotionProfile({ companionId: 'rock_hyrax' });
-    const sampleOffsets = [0, 1, 799, 800, 801, 5599, 5600, 5630, 5800];
+    const sampleOffsets = [0, 1, 999, 1000, 1001, 5329, 5330, 5600, 5800];
 
     for (const elapsedMs of sampleOffsets) {
       const first = getRoamingAnimalMotionState({ companionId: 'rock_hyrax', elapsedMs });

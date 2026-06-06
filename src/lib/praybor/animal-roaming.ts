@@ -38,9 +38,9 @@ const ROAMING_ANIMAL_IDLE_TO_WALK_DELAY_MS = 190;
 const ROAMING_ANIMAL_REST_BASE_DELAY_MS = 6400;
 const FOREST_ROAMING_ANIMAL_REST_BASE_DELAY_MS = 11800;
 const ROAMING_ANIMAL_MIN_WALKS_BEFORE_REST = 7;
-const FOREST_ROAMING_ANIMAL_MIN_WALKS_BEFORE_REST = 11;
+const FOREST_ROAMING_ANIMAL_MIN_WALKS_BEFORE_REST = 110;
 const ROAMING_ANIMAL_REST_RANDOM_WALK_WINDOW = 5;
-const FOREST_ROAMING_ANIMAL_REST_RANDOM_WALK_WINDOW = 7;
+const FOREST_ROAMING_ANIMAL_REST_RANDOM_WALK_WINDOW = 70;
 const ROAMING_ANIMAL_INITIAL_STEPS = [0, 4, 8, 2, 6] as const;
 const FOREST_ROAMING_ANIMAL_INITIAL_STEPS = [0, 9, 17, 5, 13, 21] as const;
 const ROAMING_ANIMAL_INITIAL_DELAYS_MS = [0, 720, 1360, 380, 1040] as const;
@@ -67,7 +67,7 @@ const DEFAULT_ROAMING_ANIMAL_MOTION_PROFILE = {
 const ROAMING_ANIMAL_MOTION_PROFILES: Record<string, RoamingAnimalMotionProfile> = {
   baby_rabbit: {
     loopDurationMs: 10030,
-    movingWindows: [{ startMs: 530, endMs: 10030 }],
+    movingWindows: [{ startMs: 670, endMs: 10030 }],
   },
   dog: {
     loopDurationMs: 10030,
@@ -79,7 +79,7 @@ const ROAMING_ANIMAL_MOTION_PROFILES: Record<string, RoamingAnimalMotionProfile>
   },
   rock_hyrax: {
     loopDurationMs: 6030,
-    movingWindows: [{ startMs: 800, endMs: 5600 }],
+    movingWindows: [{ startMs: 1000, endMs: 5330 }],
   },
   lion: {
     loopDurationMs: 6030,
