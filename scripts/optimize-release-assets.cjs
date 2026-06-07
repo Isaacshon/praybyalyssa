@@ -1,11 +1,13 @@
 const fs = require('fs');
 const path = require('path');
+const { spawnSync } = require('child_process');
 const sharp = require('sharp');
 
 const repoRoot = path.resolve(__dirname, '..');
 const sourceRoot = path.join(repoRoot, 'Logo', 'forest asset');
 const outputRoot = path.join(repoRoot, 'assets', 'images', 'praybor');
 const intermediateRoot = path.join(repoRoot, '.codex-diagnostics', 'release-assets');
+const desertFoxStableGifPath = path.join(intermediateRoot, 'desert-fox-side-stable.gif');
 
 const ko = {
   animal: '\ub3d9\ubb3c',
@@ -48,7 +50,7 @@ const animalAssets = [
   ['dog-front.gif', ko.dog, `${ko.front}.gif`, 220],
   [
     'desert-fox-side.gif',
-    path.join(intermediateRoot, 'desert-fox-side-stable.gif'),
+    desertFoxStableGifPath,
     null,
     280,
   ],
@@ -293,6 +295,30 @@ function walkFiles(directory) {
   });
 }
 
+function runReleaseAssetPreparationScript(scriptName) {
+  const result = spawnSync(process.execPath, [path.join(repoRoot, 'scripts', scriptName)], {
+    cwd: repoRoot,
+    encoding: 'utf8',
+    stdio: 'pipe',
+  });
+
+  if (result.stdout) {
+    process.stdout.write(result.stdout);
+  }
+
+  if (result.stderr) {
+    process.stderr.write(result.stderr);
+  }
+
+  if (result.status !== 0) {
+    throw new Error(`${scriptName} failed with exit code ${result.status ?? 'unknown'}.`);
+  }
+}
+
+function prepareReleaseAssetIntermediates() {
+  runReleaseAssetPreparationScript('normalize-desert-fox-side-gif.cjs');
+}
+
 async function optimizeExistingPngDirectories() {
   const targets = [
     [path.join(outputRoot, 'trees'), 640],
@@ -316,6 +342,8 @@ async function run() {
     .flatMap(walkFiles)
     .filter((filePath) => /\.(gif|png)$/i.test(filePath))
     .reduce((total, filePath) => total + fs.statSync(filePath).size, 0);
+
+  prepareReleaseAssetIntermediates();
 
   for (const [outputName, animalNameOrPath, fileName, width] of animalAssets) {
     await optimizeGif({
