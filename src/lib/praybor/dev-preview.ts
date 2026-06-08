@@ -4,7 +4,7 @@ const GROW_PREVIEW_PARAM = 'blessieGrowPreview';
 
 export function isBlessieGrowPreviewEnabled({
   nodeEnv = process.env.NODE_ENV,
-  search = getWindowLocationSearch(),
+  search,
 }: {
   nodeEnv?: string;
   search?: string;
@@ -13,7 +13,7 @@ export function isBlessieGrowPreviewEnabled({
     return false;
   }
 
-  return new URLSearchParams(search).get(GROW_PREVIEW_PARAM) === 'animal';
+  return new URLSearchParams(search ?? getWindowLocationSearch()).get(GROW_PREVIEW_PARAM) === 'animal';
 }
 
 export function getBlessieGrowPreviewTree(options?: {
@@ -48,7 +48,7 @@ export function getBlessieGrowPreviewCompletedTreeCount(options?: {
 }
 
 function getWindowLocationSearch() {
-  if (typeof window === 'undefined') {
+  if (typeof window === 'undefined' || !window.location) {
     return '';
   }
 

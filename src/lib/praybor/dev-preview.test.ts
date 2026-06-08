@@ -7,6 +7,29 @@ import {
 } from './dev-preview';
 
 describe('Blessie local grow preview', () => {
+  it('does not read window.location.search in production native builds', () => {
+    const originalWindowDescriptor = Object.getOwnPropertyDescriptor(globalThis, 'window');
+
+    Object.defineProperty(globalThis, 'window', {
+      configurable: true,
+      value: {},
+    });
+
+    try {
+      expect(
+        isBlessieGrowPreviewEnabled({
+          nodeEnv: 'production',
+        }),
+      ).toBe(false);
+    } finally {
+      if (originalWindowDescriptor) {
+        Object.defineProperty(globalThis, 'window', originalWindowDescriptor);
+      } else {
+        Reflect.deleteProperty(globalThis, 'window');
+      }
+    }
+  });
+
   it('enables the grow preview only outside production with the explicit query flag', () => {
     expect(
       isBlessieGrowPreviewEnabled({
