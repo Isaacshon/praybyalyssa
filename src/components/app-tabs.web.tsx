@@ -1,4 +1,4 @@
-import { router, usePathname } from 'expo-router';
+import { router, type Href, usePathname } from 'expo-router';
 import { TabList, TabListProps, TabSlot, Tabs, TabTrigger, TabTriggerSlotProps } from 'expo-router/ui';
 import React from 'react';
 import { Pressable, StyleSheet, View } from 'react-native';
@@ -12,7 +12,7 @@ type TabButtonProps = TabTriggerSlotProps & {
 type TabIconName = 'board' | 'groups' | 'grow' | 'me';
 
 const tabs = [
-  { name: 'board', href: '/(tabs)/index', label: 'Board', icon: 'board' },
+  { name: 'board', href: '/' as Href, label: 'Board', icon: 'board' },
   { name: 'groups', href: '/groups', label: 'Groups', icon: 'groups' },
   { name: 'grow', href: '/grow', label: 'Grow', icon: 'grow' },
   { name: 'me', href: '/me', label: 'Me', icon: 'me' },

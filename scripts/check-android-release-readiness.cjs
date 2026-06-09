@@ -18,6 +18,7 @@ function record(name, ok, detail) {
 
 const appConfig = JSON.parse(readText('app.json'));
 const androidConfig = appConfig.expo?.android ?? {};
+const blockedPermissions = androidConfig.blockedPermissions ?? [];
 
 record(
   'Android package is com.blessie.myapp',
@@ -30,6 +31,37 @@ record(
   androidConfig.predictiveBackGestureEnabled === true,
   `found ${String(androidConfig.predictiveBackGestureEnabled)}`
 );
+
+record(
+  'Overlay permission is blocked',
+  blockedPermissions.includes('android.permission.SYSTEM_ALERT_WINDOW'),
+  'Google Play treats SYSTEM_ALERT_WINDOW as a restricted special permission'
+);
+
+record(
+  'Digital Asset Links file exists',
+  exists('public/.well-known/assetlinks.json'),
+  'public/.well-known/assetlinks.json'
+);
+
+if (exists('public/.well-known/assetlinks.json')) {
+  const assetLinks = JSON.parse(readText('public/.well-known/assetlinks.json'));
+  const linkedAndroidApp = Array.isArray(assetLinks)
+    ? assetLinks.find((entry) => entry?.target?.namespace === 'android_app')
+    : null;
+  const certFingerprints = linkedAndroidApp?.target?.sha256_cert_fingerprints ?? [];
+
+  record(
+    'Digital Asset Links targets com.blessie.myapp',
+    linkedAndroidApp?.target?.package_name === 'com.blessie.myapp',
+    `found ${linkedAndroidApp?.target?.package_name ?? 'missing'}`
+  );
+  record(
+    'Digital Asset Links includes release certificate SHA256',
+    certFingerprints.includes('86:E8:E5:95:E0:29:B6:48:7D:98:95:78:6F:1D:0E:A7:D8:A3:F4:4A:4F:E8:94:C8:4E:F2:72:1E:19:D9:FD:33'),
+    'required for Android App Links verification'
+  );
+}
 
 record(
   'Privacy page file exists',

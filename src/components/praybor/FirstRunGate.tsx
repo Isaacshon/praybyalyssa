@@ -835,8 +835,12 @@ function AuthLanding({ onAuthenticated }: { onAuthenticated: () => Promise<void>
             </View>
 
             <View style={styles.emailFeedbackArea}>
-              {helperText ? <Text style={styles.authHelperText}>{helperText}</Text> : null}
-              {working ? <ActivityIndicator color="#FF6628" /> : null}
+              {helperText ? (
+                <Text accessibilityLiveRegion="polite" style={styles.authHelperText}>
+                  {helperText}
+                </Text>
+              ) : null}
+              {working ? <ActivityIndicator accessibilityLabel="Signing in" color="#FF6628" /> : null}
             </View>
           </ScrollView>
         </KeyboardAvoidingView>
@@ -893,8 +897,12 @@ function AuthLanding({ onAuthenticated }: { onAuthenticated: () => Promise<void>
             />
           </View>
 
-          {helperText ? <Text style={styles.authHelperText}>{helperText}</Text> : null}
-          {working ? <ActivityIndicator color="#FF6628" /> : null}
+          {helperText ? (
+            <Text accessibilityLiveRegion="polite" style={styles.authHelperText}>
+              {helperText}
+            </Text>
+          ) : null}
+          {working ? <ActivityIndicator accessibilityLabel="Signing in" color="#FF6628" /> : null}
         </ScrollView>
       </KeyboardAvoidingView>
       <ContactInfoModal onClose={() => setContactVisible(false)} visible={contactVisible} />

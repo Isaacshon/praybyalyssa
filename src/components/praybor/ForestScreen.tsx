@@ -1,5 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
+  ActivityIndicator,
   Animated,
   LayoutChangeEvent,
   NativeScrollEvent,
@@ -1111,7 +1112,17 @@ function AuthPanel({
           <Text style={styles.providerButtonText}>Apple</Text>
         </Pressable>
       </View>
-      {authMessage ? <Text style={styles.settingsErrorText}>{authMessage}</Text> : null}
+      {authWorking ? (
+        <View accessibilityLiveRegion="polite" style={styles.authWorkingRow}>
+          <ActivityIndicator accessibilityLabel="Signing in" color="#FF6628" />
+          <Text style={styles.authWorkingText}>Signing in...</Text>
+        </View>
+      ) : null}
+      {authMessage ? (
+        <Text accessibilityLiveRegion="polite" style={styles.settingsErrorText}>
+          {authMessage}
+        </Text>
+      ) : null}
     </View>
   );
 }
@@ -3641,6 +3652,17 @@ const styles = StyleSheet.create({
     marginTop: 8,
     flexDirection: 'row',
     gap: 8,
+  },
+  authWorkingRow: {
+    alignItems: 'center',
+    flexDirection: 'row',
+    gap: 8,
+    marginTop: 10,
+  },
+  authWorkingText: {
+    color: '#69543a',
+    fontSize: 12,
+    fontWeight: '800',
   },
   providerButton: {
     flex: 1,

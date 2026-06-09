@@ -1,4 +1,4 @@
-import type { Provider } from '@supabase/supabase-js';
+import type { Provider, SupabaseClient } from '@supabase/supabase-js';
 
 import { getSupabaseRuntime } from './session';
 
@@ -34,9 +34,15 @@ type CompleteProfileConsentRequest = {
 };
 
 type OAuthPlatform = 'android' | 'ios' | 'web' | 'windows' | 'macos';
+type OAuthCallbackSession = ReturnType<typeof parseOAuthCallbackSession>;
+export type OAuthCallbackCompletionResult =
+  | { status: 'completed' }
+  | { status: 'empty' }
+  | { status: 'error'; message: string };
 
 const nativeOAuthCallbackUrl = 'blessie://auth-callback';
 const webOAuthCallbackPath = 'auth-callback';
+const oauthCallbackCompletions = new Map<string, Promise<OAuthCallbackCompletionResult>>();
 
 function normalizeEmail(email: string) {
   return email.trim().toLowerCase();
@@ -336,41 +342,36 @@ export async function signInWithOAuthProvider(provider: Provider) {
   }
 
   const result = await WebBrowser.openAuthSessionAsync(data.url, oauthOptions.redirectTo);
+  const browserResult = result as {
+    error?: string;
+    errorCode?: string;
+    message?: string;
+    type: string;
+    url?: string;
+  };
 
-  if (result.type !== 'success') {
+  if (browserResult.type === 'error') {
+    throw new Error(
+      firstNonEmptyString(
+        browserResult.message,
+        browserResult.errorCode,
+        browserResult.error,
+      ) ?? 'Authentication failed in the browser session.',
+    );
+  }
+
+  if (browserResult.type !== 'success' || !browserResult.url) {
     throw new Error('Sign in was canceled.');
   }
 
-  const callbackSession = parseOAuthCallbackSession(result.url);
-  const callbackErrorMessage = createOAuthCallbackErrorMessage(provider, callbackSession);
+  const completion = await completeOAuthCallbackUrl(browserResult.url, provider);
 
-  if (callbackErrorMessage) {
-    throw new Error(callbackErrorMessage);
-  }
-
-  const { accessToken, code, refreshToken } = callbackSession;
-
-  if (accessToken && refreshToken) {
-    const { error: setSessionError } = await supabase.auth.setSession({
-      access_token: accessToken,
-      refresh_token: refreshToken,
-    });
-
-    if (setSessionError) {
-      throw setSessionError;
-    }
-
+  if (completion.status === 'completed') {
     return;
   }
 
-  if (code) {
-    const { error: exchangeError } = await supabase.auth.exchangeCodeForSession(code);
-
-    if (exchangeError) {
-      throw exchangeError;
-    }
-
-    return;
+  if (completion.status === 'error') {
+    throw new Error(completion.message);
   }
 
   throw new Error('Authentication callback did not include a session.');
@@ -408,16 +409,126 @@ export function parseOAuthCallbackSession(url: string) {
 
 export function createOAuthCallbackErrorMessage(
   provider: Provider,
-  callbackSession: ReturnType<typeof parseOAuthCallbackSession>,
+  callbackSession: OAuthCallbackSession,
 ) {
   if (!callbackSession.error && !callbackSession.errorDescription && !callbackSession.errorCode) {
     return null;
   }
 
   const providerLabel = provider.charAt(0).toUpperCase() + provider.slice(1);
-  const detail = callbackSession.errorDescription ?? callbackSession.errorCode ?? callbackSession.error ?? 'Unknown OAuth error';
 
-  return `${providerLabel} sign-in failed in Supabase Auth: ${detail}. Check the ${providerLabel} OAuth client ID, client secret, and authorized redirect URI.`;
+  return `${providerLabel} sign-in could not be completed. Check the ${providerLabel} OAuth client ID, client secret, and authorized redirect URI in Supabase, then try again.`;
+}
+
+export async function completeOAuthCallbackUrl(
+  url: string,
+  provider: Provider = 'google',
+): Promise<OAuthCallbackCompletionResult> {
+  const cachedCompletion = oauthCallbackCompletions.get(url);
+
+  if (cachedCompletion) {
+    return cachedCompletion;
+  }
+
+  const completion = completeOAuthCallbackUrlOnce(url, provider);
+  oauthCallbackCompletions.set(url, completion);
+  trimOAuthCallbackCompletionCache();
+
+  return completion;
+}
+
+async function completeOAuthCallbackUrlOnce(
+  url: string,
+  provider: Provider,
+): Promise<OAuthCallbackCompletionResult> {
+  const callbackSession = parseOAuthCallbackSession(url);
+
+  if (!hasOAuthCallbackPayload(callbackSession)) {
+    return { status: 'empty' };
+  }
+
+  const { supabase } = await getSupabaseRuntime();
+
+  if (!supabase) {
+    return { status: 'error', message: 'Supabase is not configured.' };
+  }
+
+  const callbackErrorMessage = createOAuthCallbackErrorMessage(provider, callbackSession);
+
+  if (callbackErrorMessage) {
+    return { status: 'error', message: callbackErrorMessage };
+  }
+
+  try {
+    await applyOAuthCallbackSession(supabase, callbackSession);
+
+    return { status: 'completed' };
+  } catch (error) {
+    return {
+      status: 'error',
+      message: error instanceof Error ? error.message : 'Authentication callback failed.',
+    };
+  }
+}
+
+function hasOAuthCallbackPayload(callbackSession: OAuthCallbackSession) {
+  return Boolean(
+    callbackSession.accessToken ||
+      callbackSession.code ||
+      callbackSession.error ||
+      callbackSession.errorCode ||
+      callbackSession.errorDescription ||
+      callbackSession.refreshToken,
+  );
+}
+
+async function applyOAuthCallbackSession(supabase: SupabaseClient, callbackSession: OAuthCallbackSession) {
+  const { accessToken, code, refreshToken } = callbackSession;
+
+  if (accessToken && refreshToken) {
+    const { error: setSessionError } = await supabase.auth.setSession({
+      access_token: accessToken,
+      refresh_token: refreshToken,
+    });
+
+    if (setSessionError) {
+      throw setSessionError;
+    }
+
+    return;
+  }
+
+  if (code) {
+    const { error: exchangeError } = await supabase.auth.exchangeCodeForSession(code);
+
+    if (exchangeError) {
+      throw exchangeError;
+    }
+
+    return;
+  }
+
+  throw new Error('Authentication callback did not include a session.');
+}
+
+function trimOAuthCallbackCompletionCache() {
+  if (oauthCallbackCompletions.size <= 20) {
+    return;
+  }
+
+  const firstKey = oauthCallbackCompletions.keys().next().value;
+
+  if (firstKey) {
+    oauthCallbackCompletions.delete(firstKey);
+  }
+}
+
+export function resetOAuthCallbackCompletionsForTesting() {
+  if (process.env.NODE_ENV !== 'test') {
+    return;
+  }
+
+  oauthCallbackCompletions.clear();
 }
 
 function getWindowOrigin() {
