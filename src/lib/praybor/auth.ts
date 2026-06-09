@@ -33,6 +33,11 @@ type CompleteProfileConsentRequest = {
   notificationOptIn: boolean;
 };
 
+type OAuthPlatform = 'android' | 'ios' | 'web' | 'windows' | 'macos';
+
+const nativeOAuthCallbackUrl = 'blessie://auth-callback';
+const webOAuthCallbackPath = 'auth-callback';
+
 function normalizeEmail(email: string) {
   return email.trim().toLowerCase();
 }
@@ -304,15 +309,12 @@ export async function signInWithOAuthProvider(provider: Provider) {
     throw new Error('Supabase is not configured.');
   }
 
-  const ExpoLinking = await import('expo-linking');
+  const ReactNative = await import('react-native');
   const WebBrowser = await import('expo-web-browser');
-  const redirectTo = ExpoLinking.createURL('auth-callback');
+  const oauthOptions = createOAuthSignInOptions(ReactNative.Platform.OS as OAuthPlatform);
   const { data, error } = await supabase.auth.signInWithOAuth({
     provider,
-    options: {
-      redirectTo,
-      skipBrowserRedirect: true,
-    },
+    options: oauthOptions,
   });
 
   if (error) {
@@ -333,18 +335,13 @@ export async function signInWithOAuthProvider(provider: Provider) {
     throw new Error(setupError);
   }
 
-  const result = await WebBrowser.openAuthSessionAsync(data.url, redirectTo);
+  const result = await WebBrowser.openAuthSessionAsync(data.url, oauthOptions.redirectTo);
 
   if (result.type !== 'success') {
     throw new Error('Sign in was canceled.');
   }
 
-  const parsedUrl = new URL(result.url);
-  const hashParams = new URLSearchParams(parsedUrl.hash.replace(/^#/, ''));
-  const searchParams = parsedUrl.searchParams;
-  const accessToken = hashParams.get('access_token') ?? searchParams.get('access_token');
-  const refreshToken = hashParams.get('refresh_token') ?? searchParams.get('refresh_token');
-  const code = searchParams.get('code') ?? hashParams.get('code');
+  const { accessToken, code, refreshToken } = parseOAuthCallbackSession(result.url);
 
   if (accessToken && refreshToken) {
     const { error: setSessionError } = await supabase.auth.setSession({
@@ -370,6 +367,41 @@ export async function signInWithOAuthProvider(provider: Provider) {
   }
 
   throw new Error('Authentication callback did not include a session.');
+}
+
+export function createOAuthSignInOptions(platform: OAuthPlatform = 'android') {
+  return {
+    redirectTo: createOAuthRedirectTo(platform),
+    skipBrowserRedirect: true,
+  };
+}
+
+export function createOAuthRedirectTo(platform: OAuthPlatform = 'android', webOrigin = getWindowOrigin()) {
+  if (platform === 'web') {
+    return `${webOrigin.replace(/\/$/, '')}/${webOAuthCallbackPath}`;
+  }
+
+  return nativeOAuthCallbackUrl;
+}
+
+export function parseOAuthCallbackSession(url: string) {
+  const parsedUrl = new URL(url);
+  const hashParams = new URLSearchParams(parsedUrl.hash.replace(/^#/, ''));
+  const searchParams = parsedUrl.searchParams;
+
+  return {
+    accessToken: hashParams.get('access_token') ?? searchParams.get('access_token'),
+    code: searchParams.get('code') ?? hashParams.get('code'),
+    refreshToken: hashParams.get('refresh_token') ?? searchParams.get('refresh_token'),
+  };
+}
+
+function getWindowOrigin() {
+  if (typeof window !== 'undefined' && window.location?.origin) {
+    return window.location.origin;
+  }
+
+  return 'http://localhost:8081';
 }
 
 function firstNonEmptyString(...values: unknown[]) {
