@@ -341,7 +341,14 @@ export async function signInWithOAuthProvider(provider: Provider) {
     throw new Error('Sign in was canceled.');
   }
 
-  const { accessToken, code, refreshToken } = parseOAuthCallbackSession(result.url);
+  const callbackSession = parseOAuthCallbackSession(result.url);
+  const callbackErrorMessage = createOAuthCallbackErrorMessage(provider, callbackSession);
+
+  if (callbackErrorMessage) {
+    throw new Error(callbackErrorMessage);
+  }
+
+  const { accessToken, code, refreshToken } = callbackSession;
 
   if (accessToken && refreshToken) {
     const { error: setSessionError } = await supabase.auth.setSession({
@@ -392,8 +399,25 @@ export function parseOAuthCallbackSession(url: string) {
   return {
     accessToken: hashParams.get('access_token') ?? searchParams.get('access_token'),
     code: searchParams.get('code') ?? hashParams.get('code'),
+    error: searchParams.get('error') ?? hashParams.get('error'),
+    errorCode: searchParams.get('error_code') ?? hashParams.get('error_code'),
+    errorDescription: searchParams.get('error_description') ?? hashParams.get('error_description'),
     refreshToken: hashParams.get('refresh_token') ?? searchParams.get('refresh_token'),
   };
+}
+
+export function createOAuthCallbackErrorMessage(
+  provider: Provider,
+  callbackSession: ReturnType<typeof parseOAuthCallbackSession>,
+) {
+  if (!callbackSession.error && !callbackSession.errorDescription && !callbackSession.errorCode) {
+    return null;
+  }
+
+  const providerLabel = provider.charAt(0).toUpperCase() + provider.slice(1);
+  const detail = callbackSession.errorDescription ?? callbackSession.errorCode ?? callbackSession.error ?? 'Unknown OAuth error';
+
+  return `${providerLabel} sign-in failed in Supabase Auth: ${detail}. Check the ${providerLabel} OAuth client ID, client secret, and authorized redirect URI.`;
 }
 
 function getWindowOrigin() {
