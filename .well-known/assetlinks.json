@@ -1,0 +1,14 @@
+[
+  {
+    "relation": [
+      "delegate_permission/common.handle_all_urls"
+    ],
+    "target": {
+      "namespace": "android_app",
+      "package_name": "com.blessie.myapp",
+      "sha256_cert_fingerprints": [
+        "86:E8:E5:95:E0:29:B6:48:7D:98:95:78:6F:1D:0E:A7:D8:A3:F4:4A:4F:E8:94:C8:4E:F2:72:1E:19:D9:FD:33"
+      ]
+    }
+  }
+]
